@@ -1,0 +1,373 @@
+---
+title: "Mussel condition index 10-12/2020"
+author: "Katrin Schertenleib"
+date: "`r format(Sys.Date(), '%d/%m/%y')`"
+output: github_notebook
+---
+file first created on Sun Sep 18 15:32:51 2022
+
+aim: determine and plot the mussel condition index
+
+# 1. Housekeeping
+libraries
+```{r setup} 
+#library(installr) #to always use the latest version
+    #updateR()
+#library(readxl)   #to import data from excel
+library(yaml)     #for advanced Rmarkdown layout options, e.g. using code in the header (allows to print current date in Markdown header)
+library(tidyverse)#includes ggplot, dplyr and plyr
+#library(lubridate) #to run parse_date_time
+#library(nortest) #to run Lilliefors corrected Kolmogorov-Smirnov normality tests
+library(car) #to run Anova() with different type sums of squares
+library(Hmisc) #to calculate stats for mean error plots in ggplot
+```
+note: If you have a code block named 'setup' like```{r setup} foo() ``` then every time you restart RStudio and execute any code in the middle of your markdown document, this block will be automatically run once before, i.e. you libraries will be loaded first.
+foo() is a placeholder variable in coding
+
+check work environment (especially, if you're not working in R projects)
+```{r}
+getwd() #when working in an R project, no need to change this manually. setwd() allows you to set it manually
+#dir() #lists what is in the work directory
+```
+
+
+
+# 2. Reading in the data
+```{r}
+MWWout.dat <- read_csv("2020-12-17to18_MesocosmExperiment_MusselsOUT.csv") #mussel data at the end of the experiment
+```
+
+# 3. Data preparation and exploration
+## 3.1 check and clean
+check, if data was read in correctly
+```{r}
+spec(MWWout.dat)
+str(MWWout.dat) #displays internal structure of the objects in the data frame
+names(MWWout.dat) #lists all variable headers in the data frame
+nrow(MWWout.dat) #gives you number of rows in the data frame
+
+ncol(MWWout.dat) #gives you number of columns in the data frame
+head(MWWout.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(MWWout.dat) #looks at the end of the data set
+```
+
+reduce data frame; separate the combined treatment information into additional columns for each factor
+```{r}
+MWWout.dat <- MWWout.dat[,c(4,6,22,23,28,30,31)]
+MWWout.dat <- separate(MWWout.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+
+## 3.2 Calculations
+[g]
+```{r}
+MWWout.dat$DWFlesh <- MWWout.dat$DWSubsampleFleshOnALf - MWWout.dat$Alf
+MWWout.dat$DWShell <- MWWout.dat$DWSubsampleShellOnALs - MWWout.dat$Als
+MWWout.dat$CI <- (MWWout.dat$DWFlesh/MWWout.dat$DWShell)*100
+```
+```{r}
+MWWout.dat <- subset(MWWout.dat, MWWout.dat$SpeciesLevel=="KM" | MWWout.dat$SpeciesLevel=="M")
+```
+
+```{r}
+summary(MWWout.dat)
+```
+
+
+```{r}
+#write.csv(MWWout.dat,"2022-09-18_2020-12-17_MesocosmExperiment_MusselConditionIndex.csv", row.names = TRUE) #export 
+```
+
+# 4. Exploratory Plotting
+```{r}
+#to order the temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+MWWout.dat$TempLevel <- factor(MWWout.dat$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+MWWout.dat$pCO2Level <- factor(MWWout.dat$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+MWWoutMKM.dat <- MWWout.dat[MWWout.dat$SpeciesLevel=="M" | MWWout.dat$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of Assemblage:
+MWWoutMKM.dat_mod <- MWWoutMKM.dat %>%    #requires tidyverse
+  # Rename levels of Assemblage
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+```
+
+```{r}
+names(MWWoutMKM.dat)
+```
+```{r Mussel Condition index}
+FigureMCI <- ggplot(MWWoutMKM.dat_mod, aes(x=TempLevel, y=CI, colour=TempLevel, fill=pCO2Level))  
+FigureMCI+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Mussel condition index [%]", x="Temperature Level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-09-18_MusselConditionIndex.png", width=9, height=3.5) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+# 5. Statistical Analyses
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for inbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+
+```{r}
+summary(MWWout.dat)
+names(MWWout.dat)
+```
+
+```{r}
+hist(MWWout.dat$CI)
+hist(sqrt(MWWout.dat$CI)) 
+hist(log(MWWout.dat$CI))
+```
+r for raw (untransformed) data
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+Model1r<-aov(MWWout.dat$CI ~ MWWout.dat$SpeciesLevel*MWWout.dat$TempLevel*MWWout.dat$pCO2Level) #Model1 multi-factorial; add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of species level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+
+#Diagnostics for Model1r
+#homogeneity of variances
+#graphical
+plot(resid(Model1r)~fitted(Model1r))+
+abline(h=0, lwd=2, col="black") #ok
+#statistical
+leveneTest(MWWout.dat$CI ~ MWWout.dat$SpeciesLevel*MWWout.dat$TempLevel*MWWout.dat$pCO2Level)
+leveneTest(MWWout.dat$CI ~ MWWout.dat$SpeciesLevel) #requires library(car)
+leveneTest(resid(Model1r) ~MWWout.dat$SpeciesLevel)
+
+#normality of errors
+#graphical
+hist(resid(Model1r)) #ok
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1r)) #insignificant, i.e. data normally distributed
+
+#influential data points
+plot(cooks.distance(Model1r),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1r) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#hm. slight positive autocorrelation? might increase type I errors
+```
+full model
+                                                                  Df Sum Sq Mean Sq F value   Pr(>F)    
+MWWout.dat$SpeciesLevel                                            1 111.48  111.48  18.437 8.49e-05 ***
+MWWout.dat$TempLevel                                               2   1.04    0.52   0.086    0.917    
+MWWout.dat$pCO2Level                                               1   0.56    0.56   0.093    0.762    
+MWWout.dat$SpeciesLevel:MWWout.dat$TempLevel                       2   2.97    1.49   0.246    0.783    
+MWWout.dat$SpeciesLevel:MWWout.dat$pCO2Level                       1   9.09    9.09   1.503    0.226    
+MWWout.dat$TempLevel:MWWout.dat$pCO2Level                          2   1.10    0.55   0.091    0.913    
+MWWout.dat$SpeciesLevel:MWWout.dat$TempLevel:MWWout.dat$pCO2Level  2  27.05   13.52   2.237    0.118    
+Residuals                                                         48 290.22    6.05                     
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+reduced model
+                        Df Sum Sq Mean Sq F value  Pr(>F)    
+MWWout.dat$SpeciesLevel  1  111.5  111.48   19.47 4.5e-05 ***
+Residuals               58  332.0    5.72      
+
+
+
+## 5.3 Retrospective power analysis
+groups = number of factor levels
+n = number of observations per sample
+between.var = mean squares of the effect
+within.var = mean squares of the residuals
+sig.level = error rate (default is 0.05)
+power = the power you want to achieve
+
+NULL must be replaced by observed values. If you leave one of them as NULL,
+this one will be calculated from the rest.
+
+17 h main effect temperature
+```{r}
+power.anova.test(groups=12, n=5, between.var=111.48, within.var=5.72, sig.level=0.05, power=NULL) #high power (1)
+```
+
+## 5.4 Find differences - Post-hoc comparisons
+include Bonferroni Correction to account for increased Type I error probability due to high number of comparisons
+Tukey's test
+NOT NECESSARY HERE BECAUSE ONLY 2 LEVELS
+```{r}
+TukeyHSD(Model1r)
+```
+
+# 6. Plotting significant effects
+```{r}
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+MWWout.dat_mod2 <- MWWout.dat %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "KM" = "Mussels and algae", "M" = "Mussels only"),
+         pCO2Level = dplyr::recode(pCO2Level, "C+" = "650 ppm", "Ca" = "450 ppm (ambient)"),
+         TempLevel = dplyr::recode(TempLevel, "T++" = "+2°C", "T+" = "+1°C", "Ta" = "ambient \n(9 - 12°C)"),
+         treatment = dplyr::recode(treatment, "KM_Ta_Ca"="MA_Ta_Ca", "KM_Ta_C+"="MA_Ta_C+", "KM_T+_Ca"="MA_T+_Ca", "KM_T+_C+"="MA_T+_C+", "KM_T++_Ca"="MA_T++_Ca", "KM_T++_C+"="MA_T++_C+"))
+
+#to place Mussels only first in the order of the SpeciesLevel levels
+MWWout.dat_mod2$SpeciesLevel <- factor(MWWout.dat_mod2$SpeciesLevel, levels = c("Mussels only", "Mussels and algae")) #specify factor levels in the order you want
+
+#to order the pCO2 levels in an increasing way
+MWWout.dat_mod2$pCO2Level <- factor(MWWout.dat_mod2$pCO2Level, levels = c("450 ppm (ambient)", "650 ppm")) #specify factor levels in the order you want
+
+#to order the Temperature levels in an increasing way
+MWWout.dat_mod2$TempLevel <- factor(MWWout.dat_mod2$TempLevel, levels = c("ambient \n(9 - 12°C)", "+1°C", "+2°C")) #specify factor levels in the order you want
+```
+
+```{r CI all data}
+FigCImeall <-ggplot(MWWout.dat_mod2, aes(x=TempLevel, y=CI, colour=TempLevel, fill=pCO2Level)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigCImeall+
+  facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1.3, position="dodge")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.8), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data 
+  scale_y_continuous(breaks=seq(0,24,by=5))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("white", "grey80"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Mussel condition index [%]")+ #labeling of axes
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_line(size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12, colour="black"), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=12, colour="black"),
+        axis.title=element_text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none")+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=29, label= " ") #guide_legend(order = 1, title=bquote("pCO"[2]~"level"), override.aes=list(colour="black", linewidth=1))
+```
+
+```{r}
+ggsave(path="Plots", filename="2023-01-25_MCI_mean-errorSE_all-data.png", width=7, height=4)#width=7 or 5
+```
+
+```{r mussel daily wet weigt increase only species main effect}
+FigCImeS<-ggplot(MWWout.dat_mod2, aes(x=SpeciesLevel, y=CI)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigCImeS+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1, position="dodge", colour="black", fill="white")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc)
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  #scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  #scale_fill_manual(values = c("grey70", "grey90"))+  #, labels = expression("...", "...") 
+  labs(x="none", y="none")+ #labeling of axes
+  scale_y_continuous(breaks=seq(0,20,by=5))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_blank(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_blank(),#text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=16),
+        axis.title=element_blank(),#text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+       # axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=16), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 16), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  #guides(colour = "none", fill = guide_legend(order = 1, title="Temperature"))+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=22, label= " ") 
+```
+```{r}
+ggsave(path="Plots", filename="2023-01-25_MCI_mean-errorSE_species-main-effect.png", width=3, height=2)#width=7 or 5
+```
+
+
+```{r CI main effect old}
+FigCIme<-ggplot(MWWout.dat_mod2, aes(x=SpeciesLevel, y=CI)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigCIme+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, fill=c("grey75", "grey50"))+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70"
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  
+  #scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  #scale_fill_manual(values = c("grey70", "grey90"))+  #, labels = expression("...", "...") 
+  labs(y="Mussel condition index [%]")+ #labeling of axes x="none", 
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_blank(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=12),
+        axis.title=element_text(size=12),#size of the labels on the axes 
+        axis.title.y=element_text(size=12),#size of the labels on the axes
+        axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = guide_legend(order = 1, title="Temperature"))+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=19, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-11-23_MConditionIndex_mean-errorSE2.png", width=3.5, height=4)#width=7 or 5
+```
+
+```{r}
+tapply(MWWout.dat$CI, MWWout.dat$SpeciesLevel, mean)
+```
+
+

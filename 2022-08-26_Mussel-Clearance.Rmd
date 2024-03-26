@@ -1,0 +1,747 @@
+---
+title: "Mussel clearance rates 11/12/2020"
+author: "Katrin Schertenleib"
+date: "`r format(Sys.Date(), '%d/%m/%y')`"
+output: github_notebook
+---
+
+file first created Fri Aug 26 17:05:52 2022
+updated Thu Sep  1 16:40:54 2022
+continued with stats Mon Oct 24 11:55:43 2022
+
+Aim: Investigate if treatments had an effect on mussel clearance rates
+
+Plan:
+1. Calculate proportional reduction of cells after 2 and 17 hours (1-(after/before))*100
+2. Calculate state of the art clearance rate following Coughlan 1969
+3. Plot clearance rate
+4. Run analyses
+
+# 1. Housekeeping
+libraries
+```{r setup} 
+#library(installr) #to always use the latest version
+    #updateR()
+#library(readxl)   #to import data from excel
+library(yaml)     #for advanced Rmarkdown layout options, e.g. using code in the header (allows to print current date in Markdown header)
+library(tidyverse)#includes ggplot, dplyr and plyr
+library(lubridate) #to run parse_date_time
+#library(nortest) #to run Lilliefors corrected Kolmogorov-Smirnov normality tests
+library(car) #to run Anova() with different type sums of squares
+library(Hmisc) #to calculate stats for mean error plots in ggplot
+```
+note: If you have a code block named 'setup' like```{r setup} foo() ``` then every time you restart RStudio and execute any code in the middle of your markdown document, this block will be automatically run once before, i.e. you libraries will be loaded first.
+foo() is a placeholder variable in coding
+
+check work environment (especially, if you're not working in R projects)
+```{r}
+getwd() #when working in an R project, no need to change this manually. setwd() allows you to set it manually
+#dir() #lists what is in the work directory
+```
+
+# 2. Reading in the data
+```{r}
+Clear.dat <- read_csv("2020-12-11to12_MesocosmExperiment_CLEARANCE.csv")
+```
+
+# 3. Data preparation and exploration
+## 3.1 check and clean
+check, if data was read in correctly
+```{r}
+str(Clear.dat) #displays internal structure of the objects in the data frame
+names(Clear.dat) #lists all variable headers in the data frame
+nrow(Clear.dat) #gives you number of rows in the data frame
+ncol(Clear.dat) #gives you number of columns in the data frame
+head(Clear.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(Clear.dat) #looks at the end of the data set
+```
+remove unneeded information
+```{r}
+Clear.dat <- Clear.dat[1:96, c(4,7:26)]
+```
+
+Before I clean the data, I'll separate the combined treatment information into additional columns for each factor
+```{r}
+Clear.dat <- separate(Clear.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+remove datetime (not needed here)
+```{r}
+Clear.dat <- Clear.dat[,-c(6, 9, 12, 15, 18)]
+```
+
+```{r}
+summary(Clear.dat)
+```
+```{r}
+head(Clear.dat)
+Clear.dat$T0C2 <- as.numeric(Clear.dat$T0C2)
+Clear.dat$T1C1 <- as.numeric(Clear.dat$T1C1)
+Clear.dat$T1C2 <- as.numeric(Clear.dat$T1C2)
+Clear.dat$T2C0 <- as.numeric(Clear.dat$T2C0)
+Clear.dat$T2C3 <- as.numeric(Clear.dat$T2C3)
+```
+
+
+```{r}
+names(Clear.dat)
+```
+
+## 3.2 Prepare data, calculate rates, and reshape data frame
+Discard first count, average the three following counts at each time point.
+concentration of cells/0.5ml
+```{r}
+Clear.dat <- mutate(rowwise(Clear.dat), .keep = "all", ConcT0 = round(mean(c_across(6:8), na.rm=TRUE),0), ConcT1 = round(mean(c_across(10:12), na.rm=TRUE),0), ConcT2 = round(mean(c_across(14:16), na.rm=TRUE),0))
+```
+
+```{r}
+summary(Clear.dat)
+names(Clear.dat)
+```
+
+Clearance rate following Coughlan 1969:
+m=(M/(n*t))*ln(concT0/concTX)
+Where m is the clearance rate, M is the volume of the suspension (each mesocosm has 32L), n is the number of animals per mesocosm, concTO and concT1 are the concentrations of the suspension at the start and after time t.
+[L*mussel^-1*h^-1]
+
+```{r}
+Clear.dat <- mutate(rowwise(Clear.dat), .keep = "all", ClearanceT1 = ((32/(MusselsAliveClearance*2))*log(ConcT0/ConcT1)), ClearanceT2 = ((32/(MusselsAliveClearance*17))*log(ConcT0/ConcT2)))
+```
+
+```{r}
+summary(Clear.dat)
+```
+```{r}
+names(Clear.dat)
+```
+
+subset in Blanks and those mesocosms that contained mussels
+```{r}
+ClearMKM.dat <- Clear.dat[Clear.dat$SpeciesLevel=="KM" | Clear.dat$SpeciesLevel=="M",] #remove unneeded levels
+
+ClearB.dat <- Clear.dat[Clear.dat$SpeciesLevel=="B",]
+names(ClearB.dat)
+```
+
+Restructure data frame into a continuous/long layout so I can later plot all sample dates (split into the different levels) next to each other, i.e. use temp levels to group and days to facet
+data2 = data %>% reshape(.,direction = "long",
+                varying = list(c('x_1','x_2'),
+                               c('y_1','y_2')),
+                v.names = c("x",'y'))
+```{r}
+ClearMKMLong.dat <- ClearMKM.dat %>%
+                              reshape(.,direction="long",
+                                      varying = list(
+                                         c("ClearanceT1","ClearanceT2")), #make 1st new column from the here included old columns,
+                                      v.names = c("Clearance"), #new names for the two new coluns
+                                      idvar = c("racktank", "treatment", 
+                                                "SpeciesLevel", "TempLevel", "pCO2Level"), #unique identify records
+                                      timevar = "TimePoint", #how to call the column that counts how many times columns got stacked
+                                      drop = c("T0C0", "T0C1","T0C2","T0C3","T1C0", #variables you don't want to be included in the long data frame (all others will stay)
+                                          "T1C1","T1C2","T1C3","T2C0","T2C1","T2C2","T2C3", 
+                                          "MusselsIN","ConcT0","ConcT1","ConcT2"))
+ 
+
+
+str(ClearMKMLong.dat)
+head(ClearMKMLong.dat)
+nrow(ClearMKMLong.dat) #120
+2*60 #=120 check!
+tail(ClearMKMLong.dat)
+summary(ClearMKMLong.dat)
+names(ClearMKMLong.dat)
+```
+
+
+
+```{r}
+ClearBLong.dat <- ClearB.dat %>%
+                              reshape(.,direction="long",
+                                      varying = list(
+                                         c("ConcT0","ConcT1","ConcT2")), #make 1st new column from the here included old columns,
+                                      v.names = c("Concentration"), #new names for the two new coluns
+                                      idvar = c("racktank", "treatment", 
+                                                "SpeciesLevel", "TempLevel", "pCO2Level"), #unique identify records
+                                      timevar = "TimePoint", #how to call the column that counts how many times columns got stacked
+                                      drop = c("T0C0", "T0C1","T0C2","T0C3","T1C0", #variables you don't want to be included in the long data frame (all others will stay)
+                                          "T1C1","T1C2","T1C3","T2C0","T2C1","T2C2","T2C3", 
+                                          "MusselsAliveClearance","MusselsIN","ClearanceT1",  "ClearanceT2"))
+ 
+
+
+str(ClearBLong.dat)
+head(ClearBLong.dat)
+nrow(ClearBLong.dat) #192
+2*96 #=192 check!
+tail(ClearBLong.dat)
+summary(ClearBLong.dat)
+names(ClearBLong.dat)
+```
+
+
+## 3.4 prepare for plotting
+```{r}
+table(ClearMKMLong.dat$TimePoint)
+ClearMKMLong.dat_mod <- ClearMKMLong.dat #%>%   #requires tidyverse
+  # Rename levels 
+  #mutate(TimePoint = recode(TimePoint, '1'="2 hours", '2'="17 hours")) %>%
+  #mutate(SpeciesLevel= dplyr::recode(SpeciesLevel, "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+#NOT SURE WHY THIS DOESN'T WORK AT THE MOMENT??
+
+ClearMKMLong.dat_mod$TimePoint <- ifelse(ClearMKMLong.dat_mod$TimePoint=="1","2 hours", "17 hours")
+ClearMKMLong.dat_mod$SpeciesLevel <- ifelse(ClearMKMLong.dat_mod$SpeciesLevel=="M","Mussels only", "Mussels and algae ") # (M) (KM)
+
+ClearBLong.dat_mod <- ClearBLong.dat #%>%    #requires tidyverse
+  # Rename levels 
+  #mutate(TimePoint = recode(TimePoint, "1"="Start","2"="2 hours", "3"="17 hours")) 
+
+ClearBLong.dat_mod$TimePoint <- ifelse(ClearBLong.dat_mod$TimePoint=="1","Start", ifelse(ClearBLong.dat_mod$TimePoint=="2","2 hours", "17 hours"))
+
+#to order the Temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+ClearMKMLong.dat_mod$TempLevel <- factor(ClearMKMLong.dat_mod$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+ClearMKMLong.dat_mod$pCO2Level <- factor(ClearMKMLong.dat_mod$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+ClearMKMLong.dat_mod$TimePoint <- factor(ClearMKMLong.dat_mod$TimePoint, levels = c("2 hours", "17 hours")) #specify factor levels in the order you want
+
+#to order the Temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+ClearBLong.dat_mod$TempLevel <- factor(ClearBLong.dat_mod$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+ClearBLong.dat_mod$pCO2Level <- factor(ClearBLong.dat_mod$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+ClearBLong.dat_mod$TimePoint <- factor(ClearBLong.dat_mod$TimePoint, levels = c("Start", "2 hours", "17 hours")) #specify factor levels in the order you want
+```
+
+```{r}
+ClearMKMLong2h.dat_mod <- ClearMKMLong.dat_mod[ClearMKMLong.dat_mod$TimePoint=="2 hours",]
+ClearMKMLong17h.dat_mod <- ClearMKMLong.dat_mod[ClearMKMLong.dat_mod$TimePoint=="17 hours",]
+```
+
+
+# 4. Plotting for exploration
+Blanks
+```{r}
+FigureB <- ggplot(ClearBLong.dat_mod, aes(x=TempLevel, y=Concentration, colour= TempLevel, shape=pCO2Level))  
+
+FigureB+
+  geom_point(size=3)+ #, lwd=0.7
+  facet_wrap(.~TimePoint)+
+  labs(y="Cell concentration [cells/0.5 ml]", x=FALSE)+ #labelling of axes
+  #scale_colour_manual(values = c("black", "purple"))+ #manually select colours of "fill"
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+
+  scale_fill_manual(values=c("white", "grey80"))+
+  scale_shape_manual(values=c(4,17))+
+  #scale_x_discrete(labels=c("9"= "Dec 08\n09:30", "10"= "Dec 08\n13:30", "11"= "Dec 08\n17:30", "12"= "Dec 09", "13"= "Dec 13"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 1, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-09-01_BlankCellConcentrations.png", width=7, height=5) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+
+```{r}
+FigureMKM <- ggplot(ClearMKMLong.dat_mod, aes(x=TempLevel, y=Clearance, colour= TempLevel, fill=pCO2Level, linetype=TimePoint))  
+
+FigureMKM+
+  geom_boxplot(width=0.6, position=position_dodge(0.5))+ #, lwd=0.7
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Clearance rate [L * mussel^-1 * h^-1]", x=FALSE)+ #labelling of axes
+  #scale_colour_manual(values = c("black", "purple"))+ #manually select colours of "fill"
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+
+  scale_fill_manual(values=c("white", "grey80"))+
+  #scale_shape_manual(values=c(4,17))+
+  #scale_x_discrete(labels=c("9"= "Dec 08\n09:30", "10"= "Dec 08\n13:30", "11"= "Dec 08\n17:30", "12"= "Dec 09", "13"= "Dec 13"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=11), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=11),
+        axis.title=element_text(size=11), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=11), #
+        legend.title = element_text(size=11),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        strip.text = element_text(size = 11), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 1, title="pCO2 Level"), colour = guide_legend(order=2, title="Temperature \nLevel"))
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-09-01_ClearanceRates.png", width=7, height=5) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+
+# 5 Analysis
+## 5.1 Multifactorial ANOVA on 2h data
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for inbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+```{r}
+#library(easystats) #package I found on twitter. model_dashboard(Model1) automatically creates a html dashboard that visualises assumption checks, lists parameters and estimates and even gives text reports that help with interpretation
+```
+```{r}
+summary(ClearMKMLong2h.dat_mod)
+names(ClearMKMLong2h.dat_mod)
+```
+
+```{r}
+hist(ClearMKMLong2h.dat_mod$Clearance) #looks normal
+hist(sqrt(ClearMKMLong2h.dat_mod$Clearance+0.1))
+hist(log(ClearMKMLong2h.dat_mod$Clearance+0.1))
+```
+
+```{r}
+Model1<-aov(ClearMKMLong2h.dat_mod$Clearance) ~ ClearMKMLong2h.dat_mod$SpeciesLevel*ClearMKMLong2h.dat_mod$TempLevel*ClearMKMLong2h.dat_mod$pCO2Level) #Model1 multi-factorial; add +0.1 so that roots and logs make sense
+Model1 <- aov(ClearMKM.dat$ClearanceT1 ~ ClearMKM.dat$SpeciesLevel*ClearMKM.dat$TempLevel*ClearMKM.dat$pCO2Level)
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1) #main effects of pCO2 marginally significant, rest insignificant
+Anova(Model1, type=3)
+
+# remove insignificant 3-way interaction
+Model1u1 <-update(Model1,~.-ClearMKMLong2h.dat_mod$SpeciesLevel:ClearMKMLong2h.dat_mod$TempLevel:ClearMKMLong2h.dat_mod$pCO2Level, data= ClearMKMLong2h.dat_mod)
+anova(Model1, Model1u1) #removal ok if p>0.05, which is the case here
+summary(Model1u1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1u1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1u2a <-update(Model1u1,~.-ClearMKMLong2h.dat_mod$TempLevel:ClearMKMLong2h.dat_mod$pCO2Level, data= ClearMKMLong2h.dat_mod)
+anova(Model1u1, Model1u2a) #ok
+
+Model1u2b <-update(Model1u1,~.-ClearMKMLong2h.dat_mod$SpeciesLevel:ClearMKMLong2h.dat_mod$pCO2Level, data=ClearMKMLong2h.dat_mod)
+anova(Model1u1, Model1u2b) #ok
+
+Model1u2c <-update(Model1u1,~.-ClearMKMLong2h.dat_mod$SpeciesLevel:ClearMKMLong2h.dat_mod$TempLevel, data=ClearMKMLong2h.dat_mod)
+anova(Model1u1, Model1u2c) #ok
+
+Model1u3 <-update(Model1u1,~.-ClearMKMLong2h.dat_mod$TempLevel:ClearMKMLong2h.dat_mod$pCO2Level , data= ClearMKMLong2h.dat_mod)
+anova(Model1u1, Model1u3) #ok
+
+Model1u4 <-update(Model1u3,~.-ClearMKMLong2h.dat_mod$SpeciesLevel:ClearMKMLong2h.dat_mod$pCO2Level, data=ClearMKMLong2h.dat_mod)
+anova(Model1u3, Model1u4) #ok
+#Anova(Model1u4, type=3)
+
+Model1u5 <-update(Model1u4,~.-ClearMKMLong2h.dat_mod$SpeciesLevel:ClearMKMLong2h.dat_mod$TempLevel, data=ClearMKMLong2h.dat_mod)
+anova(Model1u4, Model1u5) #ok
+summary(Model1u5)
+Anova(Model1u5, type=3)
+
+Model1u6a <-update(Model1u5,~.-ClearMKMLong2h.dat_mod$SpeciesLevel, data=ClearMKMLong2h.dat_mod)
+anova(Model1u5, Model1u6a) #ok
+
+Model1u6b <-update(Model1u5,~.-ClearMKMLong2h.dat_mod$TempLevel, data=ClearMKMLong2h.dat_mod)
+anova(Model1u5, Model1u6b) #ok
+
+Model1u6c <-update(Model1u5,~.-ClearMKMLong2h.dat_mod$pCO2Level, data=ClearMKMLong2h.dat_mod)
+anova(Model1u5, Model1u6c) #marginally ok
+
+Model1u7 <-update(Model1u5,~.-ClearMKMLong2h.dat_mod$SpeciesLevel, data=ClearMKMLong2h.dat_mod)
+anova(Model1u5, Model1u7) #ok
+
+Model1u8 <-update(Model1u7,~.-ClearMKMLong2h.dat_mod$TempLevel, data=ClearMKMLong2h.dat_mod)
+anova(Model1u7, Model1u8) #ok
+summary(Model1u8)
+
+Model1u9 <-update(Model1u8,~.-ClearMKMLong2h.dat_mod$pCO2Level, data=ClearMKMLong2h.dat_mod)
+anova(Model1u8, Model1u9) #marginally ok
+summary(Model1u9)
+
+###NO EFFECT
+
+#Model1u8 <-update(Model1u7,~.-BF.datMKMK$pCO2Level, data=ClearMKMLong2h.dat_mod)
+#anova(Model1u7, Model1u8) #ok
+#summary(Model1u8)
+#Anova(Model1u8, type=3)
+
+#Model1 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+summary(Model1)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1)~fitted(Model1))+
+abline(h=0, lwd=2, col="black") #hm
+#statistical
+leveneTest(ClearMKMLong2h.dat_mod$Clearance ~ ClearMKMLong2h.dat_mod$SpeciesLevel*ClearMKMLong2h.dat_mod$TempLevel*ClearMKMLong2h.dat_mod$pCO2Level) #requires library(car)
+leveneTest(resid(Model1) ~ClearMKMLong2h.dat_mod$SpeciesLevel*ClearMKMLong2h.dat_mod$TempLevel*ClearMKMLong2h.dat_mod$pCO2Level)
+
+
+#normality of errors
+#graphical
+hist(resid(Model1)) #ok
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1)) #insignificant, i.e. data normally distributed
+#lillie.test(resid(Model1))  # for n>70; requires library(nortest) #insignificant
+
+#influential data points
+plot(cooks.distance(Model1),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#borderline
+
+#AIC(Model1,Model1u8)
+#Model1u7 is better than Model1 (value is smaller)
+```
+full model
+ClearMKM.dat$SpeciesLevel                                                1 0.0163 0.01627   0.750  0.391  
+ClearMKM.dat$TempLevel                                                   2 0.0961 0.04803   2.213  0.120  
+ClearMKM.dat$pCO2Level                                                   1 0.0685 0.06851   3.156  0.082 .
+ClearMKM.dat$SpeciesLevel:ClearMKM.dat$TempLevel                         2 0.0846 0.04232   1.950  0.153  
+ClearMKM.dat$SpeciesLevel:ClearMKM.dat$pCO2Level                         1 0.0106 0.01060   0.488  0.488  
+ClearMKM.dat$TempLevel:ClearMKM.dat$pCO2Level                            2 0.0112 0.00558   0.257  0.774  
+ClearMKM.dat$SpeciesLevel:ClearMKM.dat$TempLevel:ClearMKM.dat$pCO2Level  2 0.0088 0.00442   0.204  0.816  
+Residuals                                                               48 1.0419 0.02171                 
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+## 5.2 Multifactorial ANOVA on 17h data
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for inbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+```{r}
+#library(easystats) #package I found on twitter. model_dashboard(Model1) automatically creates a html dashboard that visualises assumption checks, lists parameters and estimates and even gives text reports that help with interpretation
+```
+```{r}
+summary(ClearMKMLong17h.dat_mod)
+names(ClearMKMLong17h.dat_mod)
+summary(ClearMKM.dat)
+```
+
+```{r}
+hist(ClearMKMLong17h.dat_mod$Clearance) 
+hist(sqrt(ClearMKMLong17h.dat_mod$Clearance)) #looks best?
+hist(log(ClearMKMLong17h.dat_mod$Clearance))
+
+hist(ClearMKM.dat$ClearanceT2) 
+hist(sqrt(ClearMKM.dat$ClearanceT2)) #looks best
+hist(log(ClearMKM.dat$ClearanceT2))
+```
+r for raw (untransfored) data
+```{r}
+Model1r <- aov(ClearMKM.dat$ClearanceT2 ~ ClearMKM.dat$SpeciesLevel*ClearMKM.dat$TempLevel*ClearMKM.dat$pCO2Level)
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of temperature level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1r)~fitted(Model1r))+
+abline(h=0, lwd=2, col="black") #ok
+#statistical
+leveneTest(ClearMKM.dat$ClearanceT2 ~ ClearMKM.dat$SpeciesLevel*ClearMKM.dat$TempLevel*ClearMKM.dat$pCO2Level) #requires library(car)
+leveneTest(ClearMKM.dat$ClearanceT2 ~ ClearMKM.dat$TempLevel)
+leveneTest(resid(Model1r) ~ClearMKM.dat$TempLevel)
+
+#normality of errors
+#graphical
+hist(resid(Model1r)) #hm
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1r)) #insignificant, i.e. data normally distributed
+
+#influential data points
+plot(cooks.distance(Model1r),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1ru8) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+```
+Full model
+                                                                        Df  Sum Sq  Mean Sq F value Pr(>F)  
+ClearMKM.dat$SpeciesLevel                                                1 0.00258 0.002575   1.870 0.1778  
+ClearMKM.dat$TempLevel                                                   2 0.00979 0.004897   3.556 0.0363 *
+ClearMKM.dat$pCO2Level                                                   1 0.00098 0.000975   0.708 0.4043  
+ClearMKM.dat$SpeciesLevel:ClearMKM.dat$TempLevel                         2 0.00614 0.003068   2.228 0.1188  
+ClearMKM.dat$SpeciesLevel:ClearMKM.dat$pCO2Level                         1 0.00006 0.000056   0.041 0.8410  
+ClearMKM.dat$TempLevel:ClearMKM.dat$pCO2Level                            2 0.00025 0.000123   0.089 0.9148  
+ClearMKM.dat$SpeciesLevel:ClearMKM.dat$TempLevel:ClearMKM.dat$pCO2Level  2 0.00035 0.000173   0.126 0.8820  
+Residuals                                                               48 0.06610 0.001377                 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+                                  Df  Sum Sq  Mean Sq F value Pr(>F)  
+ClearMKMLong17h.dat_mod$TempLevel  2 0.00979 0.004897   3.652 0.0322 *
+Residuals                         57 0.07643 0.001341
+
+## 5.3 Retrospective power analysis
+groups = number of factor levels
+n = number of observations per sample
+between.var = mean squares of the effect
+within.var = mean squares of the residuals
+sig.level = error rate (default is 0.05)
+power = the power you want to achieve
+
+NULL must be replaced by observed values. If you leave one of them as NULL,
+this one will be calculated from the rest.
+
+17 h main effect temperature
+```{r}
+power.anova.test(groups=12, n=5, between.var=0.004897, within.var=0.001341, sig.level=0.05, power=NULL) #high power (1)
+```
+
+## 5.4 Find differences - Post-hoc comparisons
+include Bonferroni Correction to account for increased Type I error probability due to high number of comparisons
+Tukey's test
+17 h main effect temperature
+```{r}
+thsd <- TukeyHSD(Model1r)
+```
+
+$`ClearMKM.dat$TempLevel`
+              diff         lwr          upr     p adj
+T++-T+  0.01149273 -0.01688718  0.039872646 0.5933087
+Ta-T+  -0.01946180 -0.04784171  0.008918116 0.2316160
+Ta-T++ -0.03095453 -0.05933444 -0.002574616 0.0296342
+```{r}
+#plot(thsd)
+```
+
+
+# 6. Plotting significant effects
+```{r}
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+ClearMKM_mod2 <- ClearMKM.dat %>%    #requires tidyverse
+  # Rename levels of factors
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "KM" = "Mussels and algae", "M" = "Mussels only"),
+         pCO2Level = dplyr::recode(pCO2Level, "C+" = "650 ppm", "Ca" = "450 ppm (ambient)"),
+         TempLevel = dplyr::recode(TempLevel, "T++" = "+2°C", "T+" = "+1°C", "Ta" = "ambient \n(9 - 12°C)"),
+         treatment = dplyr::recode(treatment, "KM_Ta_Ca"="MA_Ta_Ca", "KM_Ta_C+"="MA_Ta_C+", "KM_T+_Ca"="MA_T+_Ca", "KM_T+_C+"="MA_T+_C+", "KM_T++_Ca"="MA_T++_Ca", "KM_T++_C+"="MA_T++_C+"))
+
+table(ClearMKM_mod2 $SpeciesLevel)
+#to place Mussels only first in the order of the SpeciesLevel levels
+ClearMKM_mod2 $SpeciesLevel <- factor(ClearMKM_mod2$SpeciesLevel, levels = c("Mussels only", "Mussels and algae")) 
+
+#to order the pCO2 levels in an increasing way
+ClearMKM_mod2 $pCO2Level <- factor(ClearMKM_mod2 $pCO2Level, levels = c("450 ppm (ambient)", "650 ppm")) #specify factor levels in the order you want
+
+#to order the Temperature levels in an increasing way
+ClearMKM_mod2 $TempLevel <- factor(ClearMKM_mod2 $TempLevel, levels = c("ambient \n(9 - 12°C)", "+1°C", "+2°C")) #specify factor levels in the order you want
+
+#to order the combined Treatment levels in an increasing way
+#ClearMKM_mod2 $treatment <- factor(ClearMKM_mod2 $treatment, levels = c("MA_Ta_Ca", "MA_Ta_C+", "MA_T+_Ca", "MA_T+_C+", "MA_T++_Ca", "MA_T++_C+", "M_Ta_Ca", "M_Ta_C+", "M_T+_Ca", "M_T+_C+", "M_T++_Ca", "M_T++_C+")) #specify factor levels in the order you want
+```
+```{r all}
+FigClear17meall<-ggplot(ClearMKM_mod2 , aes(x=TempLevel, y=ClearanceT2, colour=TempLevel, fill=pCO2Level)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigClear17meall+
+  facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1.3, position="dodge")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.8), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data 
+  scale_y_continuous(breaks=seq(0,0.13,by=0.025))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("white", "grey80"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Clearance rate \n[L * (mussel * h)^-1]")+ #labeling of axes
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_line(size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12, colour="black"), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=12, colour="black"),
+        axis.title=element_text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none") #guide_legend(order = 2, title="Temperature")+
+  #annotate("text", x=1, y=0.22, label= " ") #guide_legend(order = 1, title=bquote("pCO"[2]~"level"), override.aes=list(colour="black", linewidth=1))
+```
+
+```{r}
+ggsave(path="Plots", filename="2023-01-25_MClearance_mean-errorSE_all-data2.png", width=7, height=4)#width=7 or 5
+```
+
+```{r temp main effect}
+FigClear17meT<-ggplot(ClearMKM_mod2 , aes(x=TempLevel, y=ClearanceT2, colour=TempLevel, fill=TempLevel)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigClear17meT+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8)+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  scale_y_continuous(breaks=seq(0,0.13,by=0.025))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("skyblue", "royalblue", "blue3"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Clearance rate \n[L * (mussel * h)^-1]")+ #labeling of axes x="none", 
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks = element_line(colour="black", size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12, colour="black"),#text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=12, colour="black"),
+        axis.title=element_text(size=12),#text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+       # axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none")
+  annotate("text", x=1, y=0.13, label= " ") 
+```
+```{r}
+ggsave(path="Plots", filename="2023-01-25_MClearance_mean-errorSE_temperature-main-effect2.png", width=3, height=3.5)#width=7 or 5
+```
+
+
+```{r temp main effect}
+FigClear17meT<-ggplot(ClearMKM_mod2 , aes(x=TempLevel, y=ClearanceT2, colour=TempLevel, fill=TempLevel)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigClear17meT+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8)+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("skyblue", "royalblue", "blue3"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Clearance rate [L * (mussel * h)^-1]")+ #labeling of axes x="none", 
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_blank(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_blank(), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified) text(size=12)
+        axis.text.y=element_text(size=12),
+        axis.title=element_text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = guide_legend(order = 1, title="Temperature"))+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=0.13, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-11-23_MClearance_mean-errorSE.png", width=6, height=4)#width=7 or 5
+```
+
+```{r}
+tapply(ClearMKM_mod2$ClearanceT2, ClearMKM_mod2$TempLevel, mean)
+```
+
+Is this effect due to fewer mussels at higher temperatures, i.e. an indirect temperature effect, or were actually more particles removed from the water??
+```{r}
+FigClear17lnme<-ggplot(ClearMKM_mod2 , aes(x=TempLevel, y=(log(ConcT0/ConcT2)), colour=TempLevel, fill=TempLevel)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigClear17lnme+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8)+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("skyblue", "royalblue", "blue3"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Cleared particles \n(ln(Concentration at start / Concentration after 17h))")+ #labeling of axes x="none", 
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_blank(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_blank(), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified) text(size=12)
+        axis.text.y=element_text(size=12),
+        axis.title=element_text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = guide_legend(order = 1, title="Temperature"))+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=0.13, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-11-30_MCleared-particles_mean-errorSE.png", width=6, height=4)#width=7 or 5
+```
+
+```{r}
+tapply(log(ClearMKM_mod2$ConcT0/ClearMKM_mod2$ConcT2), ClearMKM_mod2$TempLevel, mean)
+```
+
+What was the initial cell concentration? The following applies for 0.5 ml sampling volume
+```{r}
+tapply(ClearMKM_mod2$ConcT0, ClearMKM_mod2$treatment, mean)
+hist(ClearMKM_mod2$ConcT0)
+summary(ClearMKM_mod2$ConcT0)
+#sd
+round(((sd(ClearMKM_mod2$ConcT0))/(sqrt(length(ClearMKM_mod2$ConcT0)))),2)
+```

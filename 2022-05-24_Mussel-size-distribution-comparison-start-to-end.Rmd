@@ -1,0 +1,154 @@
+---
+title: "Size distribution comparison per mesocosm at start and end of experiment"
+author: "Katrin Schertenleib"
+date: "`r format(Sys.Date(), '%d/%m/%y')`"
+output: github_notebook
+---
+file first created on Tue May 24 20:28:02 2022
+
+aim:
+- compare initial and final mussel lengths per mesocosm using the Kolmogorov-Smrinov-Test
+
+# 1. Housekeeping
+libraries
+```{r setup} 
+#library(installr) #to always use the latest version
+    #updateR()
+#library(readxl)   #to import data from excel
+library(yaml)     #for advanced Rmarkdown layout options, e.g. using code in the header (allows to print current date in Markdown header)
+#library(tidyverse)#includes ggplot, dplyr and plyr
+#library(plyr)     #for using "." when subsetting while plotting. Needs dplyr
+```
+note: If you have a code block named 'setup' like```{r setup} foo() ``` then every time you restart RStudio and execute any code in the middle of your markdown document, this block will be automatically run once before, i.e. you libraries will be loaded first.
+foo() is a placeholder variable in coding
+
+check work environment (especially, if you're not working in R projects)
+```{r}
+getwd() #when working in an R project, no need to change this manually. setwd() allows you to set it manually
+#dir() #lists what is in the work directory
+```
+
+# 2. Reading in the data
+```{r}
+Lengths.dat <- read.csv("MesocosmExperiment_MusselLENGTHS.csv")
+```
+
+# 3. Data preparation
+check, if data was read in correctly
+```{r}
+str(Lengths.dat) #displays internal structure of the objects in the data frame
+names(Lengths.dat) #lists all variable headers in the data frame
+nrow(Lengths.dat) #gives you number of rows in the data frame
+ncol(Lengths.dat) #gives you number of columns in the data frame
+head(Lengths.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(Lengths.dat) #looks at the end of the data set
+```
+
+
+```{r}
+summary(Lengths.dat) #summarises each of the columns
+```
+```{r}
+table(Lengths.dat$tankID_IN, useNA="ifany")
+table(Lengths.dat$tankID_OUT, useNA="ifany")
+```
+
+replace lengths of mussels that died in first week with lengths of the mussels that were added to replace the dead mussels (size was chosen as similar as possible)
+```{r}
+Lengths.dat$lengths_IN <- ifelse(is.na(Lengths.dat$lengths_IN_replaced_KS), Lengths.dat$lengths_IN_KS, Lengths.dat$lengths_IN_replaced_KS)
+```
+
+loops stop if they encounter NAs, so I need to drop the 30 mesocosms from which I didn't read out any mussel lengths.
+Update to the dataset:
+```{r}
+Lengths.dat <- Lengths.dat[which(!is.na(Lengths.dat$lengths_IN)),] #use all rows in which lengths_IN is not NA
+```
+
+Which treatments were the mesocosms of which I read out the mussel lengths?
+```{r}
+table(Lengths.dat$treatment, useNA = "ifany")
+```
+knowing that 30-40 mussels were put into one mesocosm, this table tells me that from each treatment mussel lengths was determined in at least one mesocosm. 
+
+Which mesocosms?
+```{r}
+table(Lengths.dat$treatment, factor=Lengths.dat$tankID_IN, useNA = "ifany")
+```
+
+# 4. Analysis
+kolmogorov-smirnov-test
+```{r}
+ks.test(Lengths.dat$lengths_IN[Lengths.dat$tankID_IN=="B1"], Lengths.dat$lengths_OUT_KS[Lengths.dat$tankID_OUT=="B1"])
+```
+
+build loop to run test for each mesocosm for which I have measured the IN and OUT mussel lengths.
+Loop needs to compare all IN mussel lengths of a tankID with all OUT mussel lengths, i.e. run a ks test per mesocosm
+As output, I want it to print the tankID, followed by the ks result (only indicate if p > or < 0.05?)
+
+tell r to use each (i) of the unique tankIDs, print the tankID, followed by the ks.test result, which it should calculate for each (i) unique tankID
+```{r}
+for(i in unique(Lengths.dat$tankID_IN)){ #unique works, alternatively levels(factor(Lengths.dat$tankID_IN))
+  print(i)
+  print(ks.test(Lengths.dat$lengths_IN[Lengths.dat$tankID_IN==i], Lengths.dat$lengths_OUT_KS[Lengths.dat$tankID_OUT==i]))
+}
+```
+
+If we now store the ks test in an object, we will be able to access the elements stored in it
+```{r}
+x <- ks.test(Lengths.dat$lengths_IN[Lengths.dat$tankID_IN==i], Lengths.dat$lengths_OUT_KS[Lengths.dat$tankID_OUT==i])
+```
+We'll store the test results in a list (has interactive elements if you call it from your environment. a table is not interactive but can be exported in a clean way)
+
+
+first, loop to make the list which contains the test results with p-values
+We'll call the list x and it needs to be brought into existence before it can be used in the loop. That's why we assign an empty, general list (list()) to the name x. it now appears in the environment, but is still empty
+```{r}
+x <- list() #could be vector, too. x needs to be assigned something first, otherwise x in your loop doesn't exist yet
+for(i in unique(Lengths.dat$tankID_IN)){
+  print(i)
+  x[[i]] <- ks.test(Lengths.dat$lengths_IN[Lengths.dat$tankID_IN==i], Lengths.dat$lengths_OUT_KS[Lengths.dat$tankID_OUT==i])
+}
+#square brackets are for indexing, i.e. x[[i]] means "in the list x, use all i elements"
+#with this loop, we're just storing the test results in the list, we're not printing them
+```
+Now we can click on the blue arrow left of the list name "x" in the environment to see the new content, or, even better, open it like a data set in a new R window.
+In contrast to a table, a list is somewhat interactive and you can click on the single entries for more details. Each mesocosm ID has an entry as we coded it above. Each entry now contains the corresponding ks test result.
+If we now hover with the cursor on top of a row in an entry, a table icon with a green arrow will appear on the right. When we click on it, the code needed to call this content will appear in the console. this is what we need to extract values from the list 
+
+
+So, second, we now build a loop to extract the p-values from the list
+(setting up loops in small, separate steps usually works best; could be combined into one big loop later, too, but tends to be more difficult to trouble-shoot if something doesn't work)
+
+```{r}
+for(i in unique(Lengths.dat$tankID_IN)){
+  print(paste(c(i,"D = ", x[[i]][["statistic"]],  "p-value = ", x[[i]][["p.value"]]),sep=" ")) #print to display, paste to "type"/specify the content. Here, we want the concatination of the element i with the corresponding list value, separated by a space
+}
+```
+only C1 is problematic ("C1"    "p-value = "   "0.0483487008471932")
+```{r}
+plot(Lengths.dat$lengths_IN)
+plot(Lengths.dat$lengths_IN[Lengths.dat$tankID_IN=="C1"])
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

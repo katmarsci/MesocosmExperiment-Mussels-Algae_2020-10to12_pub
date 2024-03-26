@@ -1,0 +1,956 @@
+---
+title: "Byssus thread breaking force 10-12/2020"
+author: "Katrin Schertenleib"
+date: "`r format(Sys.Date(), '%d/%m/%y')`"
+output: github_notebook
+---
+
+file first created Mon Oct 10 12:46:50 2022
+
+Aim: Investigate if treatments had an effect on the force needed to rip apart byssus threads
+
+Plan:
+1. plot tensile force needed per treatment
+NOTE: not all replicates read out yet. Data might be too variable due to lack of standardisation, so if nothing shows in this initial check, I will not read out the remaining 10 replicates
+
+# 1. Housekeeping
+libraries
+```{r setup} 
+#library(installr) #to always use the latest version
+    #updateR()
+#library(readxl)   #to import data from excel
+library(yaml)     #for advanced Rmarkdown layout options, e.g. using code in the header (allows to print current date in Markdown header)
+library(tidyverse)#includes ggplot, dplyr and plyr
+#library(lubridate) #to run parse_date_time
+#library(nortest) #to run Lilliefors corrected Kolmogorov-Smirnov normality tests
+library(car) #to run Anova(). However, causes problem with dplyr recode()!
+```
+note: If you have a code block named 'setup' like```{r setup} foo() ``` then every time you restart RStudio and execute any code in the middle of your markdown document, this block will be automatically run once before, i.e. you libraries will be loaded first.
+foo() is a placeholder variable in coding
+
+check work environment (especially, if you're not working in R projects)
+```{r}
+getwd() #when working in an R project, no need to change this manually. setwd() allows you to set it manually
+#dir() #lists what is in the work directory
+```
+
+# 2. Reading in the data
+```{r}
+Bys.dat <- read_csv("2020-12-21_MesocosmExperiment_MusselByssusBreakingForce.csv")
+```
+
+# 3. Data preparation and exploration
+## 3.1 check and clean
+check, if data was read in correctly
+```{r}
+str(Bys.dat) #displays internal structure of the objects in the data frame
+names(Bys.dat) #lists all variable headers in the data frame
+nrow(Bys.dat) #gives you number of rows in the data frame
+ncol(Bys.dat) #gives you number of columns in the data frame
+head(Bys.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(Bys.dat) #looks at the end of the data set
+```
+
+```{r}
+Bys.dat <- Bys.dat[1:96, c(4,6,9,10,20)]
+```
+separate the combined treatment information into additional columns for each factor
+```{r}
+Bys.dat <- separate(Bys.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+```{r}
+summary(Bys.dat)
+```
+
+J2 had ambiguous timecheck resutls. plot with and then without
+```{r}
+Bys.dat$Favrg01tc[Bys.dat$racktank=="J2"] # "d0.0279" d for dismiss? because time check was ambiguous
+Bys.dat$Favrg01tc[Bys.dat$racktank=="J2"] <- 0.0279 #also try 0.03 from Favrg01 DOESN'T MAKE ANY DIFFERENCE WHEN PLOTTING
+Bys.dat$Favrg01tc <- as.numeric(Bys.dat$Favrg01tc)
+```
+
+add displacement to check if it can be used as a proxy for mussel size, assuming that larger mussels create longer byssus threads that can be strained longer before rupture DIDN'T WORK SO DON'T ADD IT
+```{r}
+#names(Bys.dat)[names(Bys.dat)=="displacement at N max [mm]"] <- "displacementFmax"
+#colnames(Bys.dat)[7] <- "newname2"
+#Bys.dat$displacementFmax[Bys.dat$racktank=="I9"]
+#Bys.dat$displacementFmax[Bys.dat$racktank=="I9"] <- 3.44-0.7 #has a first peak at almost Fmax at 3.44 mm
+#Bys.dat$displacementFmax <- as.numeric(Bys.dat$displacementFmax)
+#Bys.dat$Fmax <- as.numeric(Bys.dat$Fmax)
+```
+When using displacement Fmax as covariate, there is 1 influential data point: B4
+So I went back into the raw data sheet and noticed irregularities at the start of the test, probably when the mesh was pulled up instead of force excerted on the byssus threads. I will only consider values from sec 49 onwards in B4
+I also checked all other files again and adjusted the displacement if there wasn't a clear slope that started with positive force exertion and lead to a clear force peak
+```{r}
+#Bys.dat$displacementFmax[Bys.dat$racktank=="B4"]
+#Bys.dat$displacementFmax[Bys.dat$racktank=="B4"] <- 8.5-4.49
+Bys.dat$Favrg01tc[Bys.dat$racktank=="B4"] <- 0.0211
+
+Bys.dat[30,"racktank"]
+Bys.dat[30,"displacementFmax"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="E6"] <- 6.2-2.5
+
+Bys.dat[16,"racktank"]
+Bys.dat[16,"displacementFmax"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="B8"] <- 5.7-1.4
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="I4"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="I4"] <- 3.3-0.1
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="B2"]
+Bys.dat[37,"racktank"]
+Bys.dat[37,"displacementFmax"]
+Bys.dat[37,"displacementFmax"] <- 1.9-1.3
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="C1"]
+Bys.dat[39,"racktank"]
+Bys.dat[39,"displacementFmax"] <- 4.3-1.2
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="G8"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="G8"] <- 4.8
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="J2"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="J2"] <- 4
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="C6"]
+Bys.dat[27,"racktank"]
+Bys.dat[27,"displacementFmax"] <- 4.2-0.1
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="B6"]
+Bys.dat[32,"racktank"]
+Bys.dat[32,"displacementFmax"] <- 5.6-0.9
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="D7"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="D7"] <- 10-0.3
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="B6"]
+Bys.dat[33,"racktank"]
+Bys.dat[33,"displacementFmax"] <- 5.7-0.8
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="H3"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="H3"] <- 8.4-1.5
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="C3"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="C3"] <- 6.1-0.9
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="F9"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="F9"] <- 4.9-0.3
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="B3"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="B3"] <- 4.9
+
+Bys.dat$displacementFmax[Bys.dat$racktank=="C4"]
+Bys.dat$displacementFmax[Bys.dat$racktank=="C4"] <- 4.4-1.1
+
+```
+
+
+```{r}
+summary(Bys.dat)
+```
+
+```{r}
+#reduce to M and KM treatments only
+Bys.dat <- Bys.dat[Bys.dat$SpeciesLevel=="M" | Bys.dat$SpeciesLevel=="KM",]
+Bys.dat <- Bys.dat[!is.na(Bys.dat$Favrg01tc),]
+```
+
+Check correlations of displacementFmax with Fmax and Favrg - maybe I can use it as a proxy for mussel size and therefore add it to my modelling as explanatory variable?
+```{r}
+plot(Bys.dat$displacementFmax, Bys.dat$Fmax)
+plot(Bys.dat$displacementFmax, Bys.dat$Favrg01tc)
+plot(Bys.dat$Fmax, Bys.dat$Favrg01tc)
+```
+```{r}
+plot(Bys.dat$displacementFmax, Bys.dat$Fmax)
+plot(Bys.dat$displacementFmax, Bys.dat$Favrg01tc)
+plot(Bys.dat$Fmax, Bys.dat$Favrg01tc)
+```
+
+```{r}
+cor.test(Bys.dat$displacementFmax, Bys.dat$Fmax) #significant correlation
+cor.test(Bys.dat$displacementFmax, Bys.dat$Favrg01tc) #no correlation
+cor.test(Bys.dat$Favrg01tc, Bys.dat$Fmax) #no correlation
+```
+cleaning displacement made correlation a bit stronger
+```{r}
+cor.test(Bys.dat$displacementFmax, Bys.dat$Fmax) #significant correlation
+cor.test(Bys.dat$displacementFmax, Bys.dat$Favrg01tc) #no correlation
+cor.test(Bys.dat$Favrg01tc, Bys.dat$Fmax) #no correlation
+```
+
+```{r}
+hist(Bys.dat$Favrg01tc) #looks best
+hist(sqrt(Bys.dat$Favrg01tc))
+hist(log(Bys.dat$Favrg01tc))
+```
+## 3.2 summarise per mesocosm
+```{r}
+Bys.datavrg <- Bys.dat %>%
+  group_by(racktank) %>%
+    summarise(aFavrg01tc=round(mean(Favrg01tc, na.rm=TRUE),4),
+              #adisplacementFmax=round(mean(displacementFmax, na.rm=TRUE),4),
+              treatment=treatment,
+              SpeciesLevel=SpeciesLevel,
+              TempLevel=TempLevel,
+              pCO2Level=pCO2Level)
+
+Bys.datavrg <- unique(Bys.datavrg) #remove duplicate rows
+
+#reduce to M and KM treatments only
+Bys.datavrg <- Bys.datavrg[Bys.datavrg$SpeciesLevel=="M" | Bys.datavrg$SpeciesLevel=="KM",]
+#Bys.datavrg <- Bys.datavrg[!is.na(Bys.datavrg$aFavrg01tc),]
+```
+
+```{r}
+hist(Bys.datavrg$aFavrg01tc)
+hist(sqrt(Bys.datavrg$aFavrg01tc))
+hist(log(Bys.datavrg$aFavrg01tc)) #looks best
+```
+
+
+unbalanced design!
+```{r}
+table(Bys.dat$treatment)
+table(Bys.datavrg$treatment)
+```
+
+# 4. Plotting
+
+## 4.1 all values first
+```{r}
+#to order the temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+Bys.dat$TempLevel <- factor(Bys.dat$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+Bys.dat$pCO2Level <- factor(Bys.dat$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#for better facet labeling I need to rename the levels of Assemblage:
+Bys.dat_mod <- Bys.dat %>%    #requires tidyverse
+  # Rename levels of Assemblage
+  mutate(SpeciesLevel = recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+```
+
+
+```{r Favrg01tc}
+FigureF <- ggplot(Bys.dat_mod, aes(x=TempLevel, y=Favrg01tc, colour=TempLevel, fill=pCO2Level))  # size=pCO2Level, 
+FigureF+
+  #geom_point()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  geom_boxplot()+
+  facet_wrap(.~SpeciesLevel)+
+  #geom_smooth(model=lm)+
+  labs(y="Average force needed to break mussel \nbyssus threads [N], all samples", x="Temperature level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-10-12_BreakingForceByssusAllSamples_boxplots.png", width=5, height=3) #legend on figure
+#width usually 7
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+## 4.2 averaged per mesocosm
+
+```{r}
+#to order the temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+Bys.datavrg$TempLevel <- factor(Bys.datavrg$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+Bys.datavrg$pCO2Level <- factor(Bys.datavrg$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#for better facet labeling I need to rename the levels of Assemblage:
+Bys.datavrg_mod <- Bys.datavrg %>%    #requires tidyverse
+  # Rename levels of Assemblage
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)")) #add dplyr:: here because car interfers with tidyverse
+```
+
+```{r}
+table(Bys.datavrg$treatment)
+```
+
+```{r Favrg01tc average per mesocosm}
+FigureaF <- ggplot(Bys.datavrg_mod, aes(x=TempLevel, y=aFavrg01tc, colour=TempLevel, fill=pCO2Level))  # size=pCO2Level, 
+FigureaF+
+  #geom_point()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  geom_boxplot()+
+  facet_wrap(.~SpeciesLevel)+
+  #geom_smooth(model=lm)+
+  labs(y="Byssus strength [N]", x="Temperature level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-10-12_BreakingForceByssusAveragedPerMesocosm_boxplots_ShortYAxisLable.png", width=5, height=3) #legend on figure
+#width usually 7
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+# 5. Analysis (ANOVA)
+## 5.1 all samples
+r for raw (untransfored) data
+```{r}
+names(Bys.dat)
+hist(Bys.dat$Favrg01tc)
+```
+
+
+```{r}
+Model1r<-aov(Bys.dat$Favrg01tc ~ Bys.dat$SpeciesLevel*Bys.dat$TempLevel*Bys.dat$pCO2Level) #Model1 multi-factorial; add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of temperature level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+# remove insignificant 3-way interaction
+Model1ru1 <-update(Model1r,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel:Bys.dat$pCO2Level, data= Bys.dat)
+anova(Model1r, Model1ru1) #removal ok if p>0.05, which is the case here
+summary(Model1ru1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1ru1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1ru2a <-update(Model1ru1,~.-Bys.dat$SpeciesLevel:Bys.dat$pCO2Level, data= Bys.dat)
+anova(Model1ru1, Model1ru2a) #ok
+
+Model1ru2b <-update(Model1ru1,~.-Bys.dat$TempLevel:Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru1, Model1ru2b) #ok
+
+Model1ru2c <-update(Model1ru1,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel, data=Bys.dat)
+anova(Model1ru1, Model1ru2c) #ok
+
+Model1ru3 <-update(Model1ru1,~.-Bys.dat$SpeciesLevel:Bys.dat$pCO2Level, data= Bys.dat)
+anova(Model1ru1, Model1ru3) #ok
+
+Model1ru4 <-update(Model1ru3,~.-Bys.dat$TempLevel:Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru3, Model1ru4) #ok
+#Anova(Model1u4, type=3)
+
+Model1ru5 <-update(Model1ru4,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel, data=Bys.dat)
+anova(Model1ru4, Model1ru5) #ok (0.09)
+summary(Model1ru5)
+Anova(Model1ru5, type=3)
+
+Model1ru6a <-update(Model1ru5,~.-Bys.dat$SpeciesLevel, data=Bys.dat)
+anova(Model1ru5, Model1ru6a) #ok
+
+Model1ru6b <-update(Model1ru5,~.-Bys.dat$TempLevel, data=Bys.dat)
+anova(Model1ru5, Model1ru6b) #ok
+
+Model1ru6c <-update(Model1ru5,~.-Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru5, Model1ru6c) #ok
+
+
+#Model1ru8 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+summary(Model1r)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1r)~fitted(Model1r))+
+abline(h=0, lwd=2, col="black") #hm
+#statistical
+fligner.test(Bys.dat$Favrg01tc ~ Bys.dat$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Bys.dat$Favrg01tc) ~ Bys.dat$TempLevel) #insignificant
+fligner.test(log(Bys.dat$Favrg01tc) ~ Bys.dat$TempLevel) #insignificant
+fligner.test(Bys.dat$Favrg01tc ~ Bys.dat$SpeciesLevel) #ok
+fligner.test(Bys.dat$Favrg01tc ~ Bys.dat$pCO2Level) #ok
+fligner.test(Bys.dat$Favrg01tc ~ interaction(Bys.dat$SpeciesLevel,  Bys.dat$TempLevel, Bys.dat$pCO2Level)) #ok
+fligner.test(Bys.dat$Favrg01tc ~ interaction(Bys.dat$SpeciesLevel,  Bys.dat$TempLevel, Bys.dat$pCO2Level)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1r)) #okish
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1r)) #insignificant, i.e. data normally distributed
+#lillie.test(resid(Model1ru8))  # for n>70; requires library(nortest) #insignificant
+
+#influential data points
+plot(cooks.distance(Model1r),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1r) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#not ok autocorrelated
+
+#AIC(Model1r,Model1ru8)
+#Model1u8 is better than Model1 (value is smaller)
+```
+
+```{r}
+names(Bys.dat)
+```
+
+
+Adding displacement at Fmax as covariate as a proxy for mussel size (not sure if this proxy works but it's all I can try)
+```{r}
+Model1r<-aov(Bys.dat$Favrg01tc ~ Bys.dat$SpeciesLevel*Bys.dat$TempLevel*Bys.dat$pCO2Level*Bys.dat$displacementFmax) #Model1 multi-factorial; if required, add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of species level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+# remove insignificant 3-way interaction
+Model1ru1 <-update(Model1r,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel:Bys.dat$pCO2Level:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1r, Model1ru1) #removal ok if p>0.05, which is the case here
+summary(Model1ru1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1ru1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1ru2a <-update(Model1ru1,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru1, Model1ru2a) #ok
+
+Model1ru2b <-update(Model1ru1,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel:Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru1, Model1ru2b) #ok
+
+Model1ru2c <-update(Model1ru1,~.-Bys.dat$SpeciesLevel:Bys.dat$pCO2Level:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru1, Model1ru2c) #ok
+
+Model1ru2d <-update(Model1ru1,~.-Bys.dat$TempLevel:Bys.dat$pCO2Level:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru1, Model1ru2d) #ok
+
+Model1ru3 <-update(Model1ru1,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru1, Model1ru3) #ok
+
+Model1ru4 <-update(Model1ru3,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel:Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru3, Model1ru4) #ok
+
+Model1ru5_1 <-update(Model1ru4,~.-Bys.dat$SpeciesLevel:Bys.dat$pCO2Level:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru4, Model1ru5_1) #ok
+
+Model1ru5 <-update(Model1ru5_1,~.-Bys.dat$TempLevel:Bys.dat$pCO2Level:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru5_1, Model1ru5) #ok (0.09)
+summary(Model1ru5)
+Anova(Model1ru5, type=3)
+
+Model1ru6a <-update(Model1ru5,~.-Bys.dat$SpeciesLevel:Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru5, Model1ru6a) #ok
+
+Model1ru6b <-update(Model1ru5,~.-Bys.dat$TempLevel:Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru5, Model1ru6b) #ok
+
+Model1ru6c <-update(Model1ru5,~.-Bys.dat$pCO2Level:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru5, Model1ru6c) #ok
+
+Model1ru6d <-update(Model1ru5,~.-Bys.dat$TempLevel:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru5, Model1ru6d) #ok
+
+Model1ru6e <-update(Model1ru5,~.-Bys.dat$SpeciesLevel:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru5, Model1ru6e) #ok
+
+Model1ru6f <-update(Model1ru5,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel, data=Bys.dat)
+anova(Model1ru5, Model1ru6f) #marginally ok
+
+
+Model1ru7 <-update(Model1ru5,~.-Bys.dat$SpeciesLevel:Bys.dat$pCO2Level, data=Bys.dat)
+anova(Model1ru5, Model1ru7) #ok
+
+Model1ru8 <-update(Model1ru7,~.-Bys.dat$TempLevel:Bys.dat$pCO2Level , data=Bys.dat)
+anova(Model1ru7, Model1ru8) #ok
+
+Model1ru9 <-update(Model1ru8,~.-Bys.dat$pCO2Level:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru8, Model1ru9) #ok
+
+Model1ru10 <-update(Model1ru9,~.-Bys.dat$TempLevel:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru9, Model1ru10) #ok
+
+Model1ru11 <-update(Model1ru10,~.-Bys.dat$SpeciesLevel:Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru10, Model1ru11) #ok
+
+Model1ru12 <-update(Model1ru11,~.-Bys.dat$SpeciesLevel:Bys.dat$TempLevel, data=Bys.dat)
+anova(Model1ru11, Model1ru12) #ok
+
+summary(Model1ru12)
+Anova(Model1ru12, type=3)
+
+Model1ru13a <-update(Model1ru12,~.-Bys.dat$SpeciesLevel, data=Bys.dat)
+anova(Model1ru12, Model1ru13a) #ok
+
+Model1ru13b <-update(Model1ru12,~.-Bys.dat$TempLevel , data=Bys.dat)
+anova(Model1ru12, Model1ru13b) #ok
+
+Model1ru13c <-update(Model1ru12,~.-Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru12, Model1ru13c) #ok
+
+Model1ru13d <-update(Model1ru12,~.-Bys.dat$pCO2Level , data=Bys.dat)
+anova(Model1ru12, Model1ru13d) #not ok
+
+Model1ru14 <-update(Model1ru12,~.-Bys.dat$SpeciesLevel, data=Bys.dat)
+anova(Model1ru12, Model1ru14) #ok
+
+Model1ru15 <-update(Model1ru14,~.-Bys.dat$TempLevel , data=Bys.dat)
+anova(Model1ru14, Model1ru15) #ok
+
+Model1ru16 <-update(Model1ru15,~.-Bys.dat$displacementFmax, data=Bys.dat)
+anova(Model1ru15, Model1ru16) #ok
+
+#i can remove everything. no effect :(
+
+#Model1r is the minimum adequate model
+summary(Model1r)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1r)~fitted(Model1r))+
+abline(h=0, lwd=2, col="black") #hm
+#statistical
+fligner.test(Bys.dat$Favrg01tc ~ Bys.dat$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Bys.dat$Favrg01tc) ~ Bys.dat$TempLevel) #insignificant
+fligner.test(log(Bys.dat$Favrg01tc) ~ Bys.dat$TempLevel) #insignificant
+fligner.test(Bys.dat$Favrg01tc ~ Bys.dat$SpeciesLevel) #ok
+fligner.test(Bys.dat$Favrg01tc ~ Bys.dat$pCO2Level) #ok
+fligner.test(Bys.dat$Favrg01tc ~ Bys.dat$displacementFmax) #ok
+fligner.test(Bys.dat$Favrg01tc ~ interaction(Bys.dat$SpeciesLevel,  Bys.dat$TempLevel, Bys.dat$pCO2Level, Bys.dat$displacementFmax)) #NA
+fligner.test(sqrt(Bys.dat$Favrg01tc) ~ interaction(Bys.dat$SpeciesLevel,  Bys.dat$TempLevel, Bys.dat$pCO2Level)) #ok
+fligner.test(Bys.dat$Favrg01tc ~ interaction(Bys.dat$SpeciesLevel,  Bys.dat$TempLevel, Bys.dat$pCO2Level)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1r)) #okish
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1r)) #significant, i.e. data not normally distributed
+#lillie.test(resid(Model1ru16))  # for n>70; requires library(nortest) #significant
+
+#influential data points
+plot(cooks.distance(Model1r),type="h") #1 outlier
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1ru16) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+AIC(Model1r,Model1ru16)
+#Model1u8 is better than Model1 (value is smaller)
+```
+
+
+
+
+
+
+```{r}
+Model1r<-aov(Bys.dat$Favrg01tc ~ Bys.dat$SpeciesLevel*Bys.dat$TempLevel*Bys.dat$pCO2Level) #Model1 multi-factorial; add +0.1 so that roots and logs make sense
+```
+
+
+
+
+try adding racktank as random effect?
+
+## 5.2 data averaged per mesocosm
+r for raw data NO EFFECT
+```{r}
+Model1r<-aov(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$SpeciesLevel*Bys.datavrg$TempLevel*Bys.datavrg$pCO2Level) #Model1 multi-factorial; add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of temperature level significant (0.0363), rest insignificant
+Anova(Model1r, type=3)
+
+# remove insignificant 3-way interaction
+Model1ru1 <-update(Model1r,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data= Bys.datavrg)
+anova(Model1r, Model1ru1) #removal ok if p>0.05, which is the case here
+summary(Model1ru1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1ru1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1ru2a <-update(Model1ru1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level, data= Bys.datavrg)
+anova(Model1ru1, Model1ru2a) #ok
+
+Model1ru2b <-update(Model1ru1,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1ru1, Model1ru2b) #ok
+
+Model1ru2c <-update(Model1ru1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1ru1, Model1ru2c) #ok marginally
+
+Model1ru3 <-update(Model1ru1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level, data= Bys.datavrg)
+anova(Model1ru1, Model1ru3) #ok
+
+Model1ru4 <-update(Model1ru3,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1ru3, Model1ru4) #ok
+#Anova(Model1u4, type=3)
+
+Model1ru5 <-update(Model1ru4,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1ru4, Model1ru5) #ok (0.09)
+summary(Model1ru5)
+Anova(Model1ru5, type=3)
+
+Model1ru6a <-update(Model1ru5,~.-Bys.datavrg$SpeciesLevel, data=Bys.datavrg)
+anova(Model1ru5, Model1ru6a) #ok
+
+Model1ru6b <-update(Model1ru5,~.-Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1ru5, Model1ru6b) #ok
+
+Model1ru6c <-update(Model1ru5,~.-Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1ru5, Model1ru6c) #ok
+
+#no effect
+
+#Model1r is the minimum adequate model, because I could remove all terms without keeping anything significant
+summary(Model1r)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1r)~fitted(Model1r))+
+abline(h=0, lwd=2, col="black") #hm
+#statistical
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+#fligner.test(sqrt(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$TempLevel) #insignificant
+f#ligner.test(log(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$TempLevel) #insignificant
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$SpeciesLevel) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$pCO2Level) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level)) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level)) #ok
+fligner.test(resid(Model1r)~fitted(Model1r))
+leveneTest(aFavrg01tc~interaction(SpeciesLevel, TempLevel, pCO2Level), data=Bys.datavrg)
+
+#normality of errors
+#graphical
+hist(resid(Model1r)) #okish
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1r)) #insignificant, i.e. data normally distributed
+#lillie.test(resid(Model1ru8))  # for n>70; requires library(nortest) #insignificant
+
+#influential data points
+plot(cooks.distance(Model1r),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1r) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+#AIC(Model1r,Model1ru8)
+#Model1u8 is better than Model1 (value is smaller)
+```
+summary(Model1r)
+                                                                     Df   Sum Sq   Mean Sq F value Pr(>F)  
+Bys.datavrg$SpeciesLevel                                              1 3.50e-06 3.550e-06   0.201 0.6582  
+Bys.datavrg$TempLevel                                                 2 2.10e-06 1.030e-06   0.058 0.9435  
+Bys.datavrg$pCO2Level                                                 1 1.21e-05 1.208e-05   0.685 0.4168  
+Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel                        2 9.49e-05 4.743e-05   2.689 0.0902 .
+Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level                        1 6.90e-06 6.890e-06   0.391 0.5383  
+Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level                           2 2.67e-05 1.333e-05   0.756 0.4815  
+Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level  2 1.31e-05 6.570e-06   0.372 0.6934  
+Residuals                                                            22 3.88e-04 1.764e-05                 
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+
+Anova Table (Type III tests)
+Response: Bys.datavrg$aFavrg01tc
+                                                                        Sum Sq Df   F value  Pr(>F)    
+(Intercept)                                                          0.0184690  1 1047.1044 < 2e-16 ***
+Bys.datavrg$SpeciesLevel                                             0.0000020  1    0.1151 0.73757    
+Bys.datavrg$TempLevel                                                0.0000019  2    0.0548 0.94680    
+Bys.datavrg$pCO2Level                                                0.0000139  1    0.7892 0.38395    
+Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel                       0.0001008  2    2.8565 0.07891 .  
+Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level                       0.0000055  1    0.3141 0.58082    
+Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level                          0.0000267  2    0.7579 0.48050    
+Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level 0.0000131  2    0.3723 0.69340    
+Residuals                                                            0.0003880 22                      
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+
+
+trying log transformed data NO EFFECT
+```{r}
+Model1<-aov(log(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$SpeciesLevel*Bys.datavrg$TempLevel*Bys.datavrg$pCO2Level) #Model1 multi-factorial; add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1) #main effects of temperature level significant (0.0363), Temp*Species marginally significant, rest insignificant
+Anova(Model1)
+
+# remove insignificant 3-way interaction
+Model1u1 <-update(Model1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data= Bys.datavrg)
+anova(Model1, Model1u1) #removal ok if p>0.05, which is the case here
+summary(Model1u1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1u1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1u2a <-update(Model1u1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level, data= Bys.datavrg)
+anova(Model1u1, Model1u2a) #ok
+
+Model1u2b <-update(Model1u1,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level , data=Bys.datavrg)
+anova(Model1u1, Model1u2b) #ok
+
+Model1u2c <-update(Model1u1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1u1, Model1u2c) #ok
+
+Model1u3 <-update(Model1u1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level, data= Bys.datavrg)
+anova(Model1u1, Model1u3) #ok
+
+Model1u4 <-update(Model1u3,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level , data=Bys.datavrg)
+anova(Model1u3, Model1u4) #ok
+#Anova(Model1u4, type=3)
+
+Model1u5 <-update(Model1u4,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1u4, Model1u5) #ok (0.09)
+
+summary(Model1u5)
+Anova(Model1u5, type=3)
+
+Model1u6a <-update(Model1u5,~.-Bys.datavrg$SpeciesLevel, data=Bys.datavrg)
+anova(Model1u5, Model1u6a) #ok
+
+Model1u6b <-update(Model1u5,~.-Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1u5, Model1u6b) #ok
+
+Model1u6b <-update(Model1u5,~.-Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u5, Model1u6b) #ok
+
+
+#Model1 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+summary(Model1)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1)~fitted(Model1))+
+abline(h=0, lwd=2, col="black") #ok
+#statistical
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$TempLevel) #insignificant
+fligner.test(log(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$TempLevel) #insignificant
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$SpeciesLevel) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$pCO2Level) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level)) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level)) #ok
+fligner.test(sqrt(Bys.datavrg$aFavrg01tc) ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1)) #ok
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1)) #insignificant, i.e. data normally distributed
+#lillie.test(resid(Model1u7))  # for n>70; requires library(nortest) #insignificant
+
+#influential data points
+plot(cooks.distance(Model1),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+#AIC(Model1,Model1u7)
+#Model1u7 is better than Model1 (value is smaller)
+```
+
+
+
+using displacementFmax as covariate NON-NORMAL
+using log transformation NORMAL BUT NO EFFECT
+```{r}
+names(Bys.datavrg)
+summary(Bys.datavrg)
+```
+
+```{r}
+Model1<-aov(log(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$SpeciesLevel*Bys.datavrg$TempLevel*Bys.datavrg$pCO2Level*Bys.datavrg$adisplacementFmax) #Model1 multi-factorial; add +0.1 if response has negative range so that values become positive and roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1) #main effects of temperature level significant (0.0363), Temp*Species marginally significant, rest insignificant
+Anova(Model1,type=3) 
+
+# remove insignificant 3-way interaction
+Model1u1 <-update(Model1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1, Model1u1) #removal ok if p>0.05, which is the case here
+summary(Model1u1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1u1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1u2a <-update(Model1u1,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level:Bys.datavrg$adisplacementFmax, data= Bys.datavrg)
+anova(Model1u1, Model1u2a) #ok
+
+Model1u2b <-update(Model1u1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u1, Model1u2b) #ok
+
+Model1u2c <-update(Model1u1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u1, Model1u2c) #ok marginally
+
+Model1u2d <-update(Model1u1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u1, Model1u2d) #ok marginally
+
+
+Model1u3 <-update(Model1u1,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level:Bys.datavrg$adisplacementFmax, data= Bys.datavrg)
+anova(Model1u1, Model1u3) #ok
+
+Model1u4 <-update(Model1u3,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u3, Model1u4) #ok
+#Anova(Model1u4, type=3)
+
+Model1u5_1 <-update(Model1u4,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u4, Model1u5_1) #ok
+
+Model1u5 <-update(Model1u5_1,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u5, Model1u5_1) #ok
+summary(Model1u5)
+Anova(Model1u5, type=3)
+
+Model1u6a <-update(Model1u5,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u5, Model1u6a) #ok
+
+Model1u6b <-update(Model1u5,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u5, Model1u6b) #ok
+
+Model1u6c <-update(Model1u5,~.-Bys.datavrg$pCO2Level:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u5, Model1u6c) #ok
+
+Model1u6d <-update(Model1u5,~.-Bys.datavrg$TempLevel:Bys.datavrg$adisplacementFmax , data=Bys.datavrg)
+anova(Model1u5, Model1u6d) #ok
+
+Model1u6e <-update(Model1u5,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u5, Model1u6e) #ok
+
+Model1u6f <-update(Model1u5,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1u5, Model1u6f) #not ok
+
+
+
+Model1u7 <-update(Model1u5,~.-Bys.datavrg$TempLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u5, Model1u7) #ok
+
+Model1u8 <-update(Model1u7,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u7, Model1u8) #ok
+
+Model1u9 <-update(Model1u8,~.-Bys.datavrg$pCO2Level:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u8, Model1u9) #ok
+
+Model1u10 <-update(Model1u9,~.-Bys.datavrg$TempLevel:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u9, Model1u10) #ok
+
+Model1u11 <-update(Model1u10,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u10, Model1u11) #ok
+
+#Model1u12 <-update(Model1u11,~.-Bys.datavrg$SpeciesLevel:Bys.datavrg$TempLevel, data=Bys.datavrg)
+#anova(Model1u11, Model1u12) #ok
+
+summary(Model1u11)
+Anova(Model1u11, type=3)
+
+Model1u12 <- Model1u11
+
+Model1u13a <-update(Model1u12,~.-Bys.datavrg$TempLevel, data=Bys.datavrg)
+anova(Model1u12, Model1u13a) #not ok
+
+Model1u13b <-update(Model1u12,~.-Bys.datavrg$SpeciesLevel, data=Bys.datavrg)
+anova(Model1u12, Model1u13b) #not ok
+
+Model1u13c <-update(Model1u12,~.-Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u12, Model1u13c) #ok
+
+Model1u13d <-update(Model1u12,~.-Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u12, Model1u13d) #ok
+
+#Model1u14 <-update(Model1u12,~.-Bys.datavrg$TempLevel, data=Bys.datavrg)
+#anova(Model1u12, Model1u14) #ok
+
+#Model1u15 <-update(Model1u14,~.-Bys.datavrg$SpeciesLevel, data=Bys.datavrg)
+#anova(Model1u14, Model1u15) #ok
+
+Model1u16 <-update(Model1u12,~.-Bys.datavrg$adisplacementFmax, data=Bys.datavrg)
+anova(Model1u12, Model1u16) #ok
+
+Model1u17 <-update(Model1u16,~.-Bys.datavrg$pCO2Level, data=Bys.datavrg)
+anova(Model1u16, Model1u17) #ok
+
+
+summary(Model1u17)
+Anova(Model1u17, type=3) #Species:Temp marginally significant
+
+
+#Model1u17 is the minimum adequate model but there are no significant effects
+summary(Model1u17)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1u17)~fitted(Model1u17))+
+abline(h=0, lwd=2, col="black") #looks better than raw data model
+#statistical
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$TempLevel) #insignificant
+fligner.test(log(Bys.datavrg$aFavrg01tc) ~ Bys.datavrg$TempLevel) #insignificant
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$SpeciesLevel) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$pCO2Level) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ Bys.datavrg$length) #o
+fligner.test(Bys.datavrg$aFavrg01tc ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level, Bys.datavrg$adisplacementFmax)) #ok
+fligner.test(Bys.datavrg$aFavrg01tc ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level)) #ok
+fligner.test(sqrt(Bys.datavrg$aFavrg01tc) ~ interaction(Bys.datavrg$SpeciesLevel,  Bys.datavrg$TempLevel, Bys.datavrg$pCO2Level, Bys.datavrg$adisplacementFmax)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1u17)) #ok
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1u17)) #insignificant, i.e. data normally distributed
+#lillie.test(resid(Model1u14))  # for n>70; requires library(nortest) #insignificant
+
+#influential data points
+plot(cooks.distance(Model1u17),type="h") 
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1u17) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#borderline
+
+AIC(Model1,Model1u17)
+#Model1u7 is better than Model1 (value is smaller)
+```

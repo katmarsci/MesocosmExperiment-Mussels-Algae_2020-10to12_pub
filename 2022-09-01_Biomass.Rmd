@@ -1,0 +1,1692 @@
+---
+title: "Biomass 10-12/2020 Comparison Sum vs Coculture"
+author: "Katrin Schertenleib"
+date: "`r format(Sys.Date(), '%d/%m/%y')`"
+output: github_notebook
+---
+file first created on Thu Sep  1 11:06:36 2022,
+continued with stats on Tue Oct 18 16:03:33 2022 and on Tue Jan 16 17:37:36 2024
+
+aim: determine and plot 
+1. WW mussels OUT
+2. WW increase of mean mussel weight start vs. end of the experiment, per week or day
+3. difference of WW seeded string in and WW seeded string out
+4. mean biomass per species level and abiotic treatment
+5. calculate the sums of all possible biomass combinations of the mesocosms that had only mussels and that had only algae. This will yield 25 values for each abiotic treatment (temperature levels crossed with pCO2 levels)
+5.1. test for homogeneity of variances between the groups and if this requirement is fulfilled, 
+5.2. run an ANOVA that tests for differences between the biomass sums and the biomass grown together, for all abiotic treatments. If ANOVA assumptions are violated, 
+5.3 use a Scheirer-Ray-Hare test.
+5.4. Plot mean-error bars for mussels only, algae only, mussels only PLUS algae only, mussels AND algae per abiotic treatment
+
+# 1. Housekeeping
+libraries
+```{r setup} 
+#library(installr) #to always use the latest version
+    #updateR()
+#library(readxl)   #to import data from excel
+library(yaml)     #for advanced Rmarkdown layout options, e.g. using code in the header (allows to print current date in Markdown header)
+library(tidyverse)#includes ggplot, dplyr and plyr
+#library(lubridate) #to run parse_date_time
+#library(nortest) #to run Lilliefors corrected Kolmogorov-Smirnov normality tests
+library(car) #to run Anova() with different type sums of squares
+library(Hmisc) #to calculate stats for mean error plots in ggplot
+```
+note: If you have a code block named 'setup' like```{r setup} foo() ``` then every time you restart RStudio and execute any code in the middle of your markdown document, this block will be automatically run once before, i.e. you libraries will be loaded first.
+foo() is a placeholder variable in coding
+
+check work environment (especially, if you're not working in R projects)
+```{r}
+getwd() #when working in an R project, no need to change this manually. setwd() allows you to set it manually
+#dir() #lists what is in the work directory
+```
+
+
+# 2. Reading in the data
+## 2.1 Mussel Wet Weight
+```{r}
+MWWin.dat <- read_csv("2020-10-28_MesocosmExperiment_MusselsIN.csv") #mussel data at the start of the experiment
+MWWout.dat <- read_csv("2020-12-17to18_MesocosmExperiment_MusselsOUT.csv") #mussel data at the end of the experiment
+```
+## 2.2 Seeded String
+```{r}
+SSin.dat <- read_csv("2020-10-30_MesocosmExperiment_KelpIN.csv") #mussel data at the start of the experiment
+SSout.dat <- read_csv("2020-12-18_MesocosmExperiment_KelpOUT.csv") #mussel data at the end of the experiment
+```
+
+
+# 3. Data preparation and exploration
+## 3.1 check and clean
+### 3.1.1 Mussels
+#### 3.1.1.1 IN
+check, if data was read in correctly
+```{r}
+spec(MWWin.dat)
+str(MWWin.dat) #displays internal structure of the objects in the data frame
+nrow(MWWin.dat) #gives you number of rows in the data frame
+
+ncol(MWWin.dat) #gives you number of columns in the data frame
+head(MWWin.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(MWWin.dat) #looks at the end of the data set
+names(MWWin.dat) #lists all variable headers in the data frame
+```
+
+reduce data frame; (separate the combined treatment information into additional columns for each factor)
+```{r}
+MWWin.dat <- MWWin.dat[,c(4,5,11,15)]
+names(MWWin.dat)[3] <- "TotalWW"
+names(MWWin.dat)[4] <- "nMussels"
+MWWin.dat <- separate(MWWin.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+
+#### 3.1.1.2 OUT
+check, if data was read in correctly
+```{r}
+spec(MWWout.dat)
+str(MWWout.dat) #displays internal structure of the objects in the data frame
+names(MWWout.dat) #lists all variable headers in the data frame
+nrow(MWWout.dat) #gives you number of rows in the data frame
+
+ncol(MWWout.dat) #gives you number of columns in the data frame
+head(MWWout.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(MWWout.dat) #looks at the end of the data set
+```
+
+reduce data frame; separate the combined treatment information into additional columns for each factor
+```{r}
+MWWout.dat <- MWWout.dat[,c(4,6,12,28)]
+MWWout.dat <- separate(MWWout.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+
+### 3.1.2 Seeded String (Kelp)
+#### 3.1.2.1 IN
+check, if data was read in correctly
+```{r}
+spec(SSin.dat)
+str(SSin.dat) #displays internal structure of the objects in the data frame
+nrow(SSin.dat) #gives you number of rows in the data frame
+
+ncol(SSin.dat) #gives you number of columns in the data frame
+head(SSin.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(SSin.dat) #looks at the end of the data set
+names(SSin.dat) #lists all variable headers in the data frame
+```
+
+reduce data frame; (separate the combined treatment information into additional columns for each factor)
+```{r}
+SSin.dat <- SSin.dat[,c(4,5,7)]
+names(SSin.dat)[3] <- "SSTotalWWin"
+SSin.dat <- separate(SSin.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+
+#### 3.1.2.2 OUT
+check, if data was read in correctly
+```{r}
+spec(SSout.dat)
+str(SSout.dat) #displays internal structure of the objects in the data frame
+nrow(SSout.dat) #gives you number of rows in the data frame
+
+ncol(SSout.dat) #gives you number of columns in the data frame
+head(SSout.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(SSout.dat) #looks at the end of the data set
+names(SSout.dat) #lists all variable headers in the data frame
+```
+
+reduce data frame; separate the combined treatment information into additional columns for each factor
+```{r}
+SSout.dat <- SSout.dat[1:96,c(4,7,15,18)]
+names(SSout.dat)[3] <- "SSTotalWWout"
+names(SSout.dat)[4] <- "nKelp"
+SSout.dat <- separate(SSout.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+
+## 3.2 Calculations
+### 3.2.1 Mussels
+calculate average mussel weight IN
+```{r}
+MWWin.dat$avgMusselWWIN <- round(MWWin.dat$TotalWW/MWWin.dat$nMussels,2)#2 decimal points 
+```
+
+
+```{r}
+summary(MWWin.dat)
+```
+
+calculate average mussel weight OUT
+```{r}
+MWWout.dat$avgMusselWWOUT <- round(MWWout.dat$WWMusselsOUT/MWWout.dat$MusselsOUT,4)
+```
+
+calculate average mussel WW increase (biomass growth rates, i.e. secodary productivity) since the start of the experiment
+```{r}
+MWWout.dat$WWincreaseINDIV <- MWWout.dat$avgMusselWWOUT-MWWin.dat$avgMusselWWIN #[g]
+#MWWout.dat$WWincreaseW <- ((MWWout.dat$avgMusselWWOUT-MWWin.dat$avgMusselWWIN)/7)*1000 #[mg]
+#MWWout.dat$WWincreaseD <- ((MWWout.dat$avgMusselWWOUT-MWWin.dat$avgMusselWWIN)/51)*1000 #[mg]
+```
+calculate total accumulated mussel biomass
+```{r}
+MWWout.dat$WWincreaseMTOTAL <- MWWout.dat$WWincreaseINDIV*MWWout.dat$MusselsOUT #[g]
+```
+
+```{r}
+summary(MWWout.dat)
+```
+```{r}
+plot(MWWout.dat$WWincrease)
+which.min(MWWout.dat$WWincrease)
+MWWout.dat$racktank[MWWout.dat$WWincrease<0]
+MWWout.dat[48, 1]
+```
+
+restrict to MKM
+```{r}
+#MWWout.datMKM <- MWWout.dat[MWWout.dat$SpeciesLevel == "M" | MWWout.dat$SpeciesLevel == "KM",]
+```
+
+
+### 3.2.2 Seeded String (Kelp)
+calculate weight increase (there was basically 0 at the start of the experiment)
+```{r}
+SSout.dat$SSWWincrease <- SSout.dat$SSTotalWWout-SSin.dat$SSTotalWWin #[g]
+#SSout.dat$SSWWincreaseD <- ((SSout.dat$SSTotalWWout-SSin.dat$SSTotalWWin)/50)*1000 #[mg]
+```
+```{r}
+#SSout.dat<- SSout.dat[SSout.dat$SpeciesLevel=="K" | SSout.dat$SpeciesLevel=="KM",] #only run this line after calculating total biomass
+```
+
+
+### 3.2.3 Total ACCUMULATED biomass per mesocosm
+For mussels, use MWWout.dat$WWincreaseTOTAL [g]
+for seeded string, use SSout.dat$SSWWincrease [g]
+
+```{r}
+MWWout.dat$SSWWincrease <- SSout.dat$SSWWincrease #biomass on seeded string in [g]
+head(MWWout.dat)
+names(MWWout.dat)
+MWWout.dat <- mutate(rowwise(MWWout.dat), .keep = "all", TotalBiomass = round(sum(c_across(c(11:12)), na.rm=TRUE), 4))
+
+#MWWout.dat$totalBMBF <- BF.dat$totalBMBF
+#MWWout.dat$nKelp  <- SSout.dat$nKelp
+```
+
+### 3.2.4 Sum of mussel only and algae only biomasses (all possible combinations per abiotic treatment)
+reduce data frame
+```{r}
+Accum.dat <- MWWout.dat[MWWout.dat$SpeciesLevel=="K"|MWWout.dat$SpeciesLevel=="M"| MWWout.dat$SpeciesLevel=="KM",c(1,3:5,11:13)]
+
+ATaCaM.dat <- Accum.dat[Accum.dat$TempLevel=="Ta"&Accum.dat$pCO2Level=="Ca"&Accum.dat$SpeciesLevel=="M",]
+ATaCaK.dat <- Accum.dat[Accum.dat$TempLevel=="Ta"&Accum.dat$pCO2Level=="Ca"&Accum.dat$SpeciesLevel=="K",]
+
+ATaCpM.dat <- Accum.dat[Accum.dat$TempLevel=="Ta"&Accum.dat$pCO2Level=="C+"&Accum.dat$SpeciesLevel=="M",]
+ATaCpK.dat <- Accum.dat[Accum.dat$TempLevel=="Ta"&Accum.dat$pCO2Level=="C+"&Accum.dat$SpeciesLevel=="K",]
+
+ATpCaM.dat <- Accum.dat[Accum.dat$TempLevel=="T+"&Accum.dat$pCO2Level=="Ca"&Accum.dat$SpeciesLevel=="M",]
+ATpCaK.dat <- Accum.dat[Accum.dat$TempLevel=="T+"&Accum.dat$pCO2Level=="Ca"&Accum.dat$SpeciesLevel=="K",]
+
+ATpCpM.dat <- Accum.dat[Accum.dat$TempLevel=="T+"&Accum.dat$pCO2Level=="C+"&Accum.dat$SpeciesLevel=="M",]
+ATpCpK.dat <- Accum.dat[Accum.dat$TempLevel=="T+"&Accum.dat$pCO2Level=="C+"&Accum.dat$SpeciesLevel=="K",]
+
+ATppCaM.dat <- Accum.dat[Accum.dat$TempLevel=="T++"&Accum.dat$pCO2Level=="Ca"&Accum.dat$SpeciesLevel=="M",]
+ATppCaK.dat <- Accum.dat[Accum.dat$TempLevel=="T++"&Accum.dat$pCO2Level=="Ca"&Accum.dat$SpeciesLevel=="K",]
+
+ATppCpM.dat <- Accum.dat[Accum.dat$TempLevel=="T++"&Accum.dat$pCO2Level=="C+"&Accum.dat$SpeciesLevel=="M",]
+ATppCpK.dat <- Accum.dat[Accum.dat$TempLevel=="T++"&Accum.dat$pCO2Level=="C+"&Accum.dat$SpeciesLevel=="K",]
+```
+
+cross weights, calculate sums, cross racktanks, combine, add factors, reorder
+```{r TaCa}
+ATaCaMpK.dat <- tidyr::expand_grid(ATaCaM.dat$WWincreaseMTOTAL, ATaCaK.dat$SSWWincrease)
+colnames(ATaCaMpK.dat)[1] <- "WWincreaseMTOTAL" #to keep column names the same. will make merging easier
+colnames(ATaCaMpK.dat)[2] <- "SSWWincrease" 
+ATaCaMpK.dat$TotalBiomass <- ATaCaMpK.dat$WWincreaseMTOTAL+ATaCaMpK.dat$SSWWincrease
+
+RTTaCaMpK <- tidyr::expand_grid(ATaCaM.dat$racktank, ATaCaK.dat$racktank)
+tib <- unite(RTTaCaMpK, col = "racktank", sep = "_") #unite(table5, century, year, col = "year", sep = "") MAKES A TIBBLE
+ATaCaMpK.dat$racktank <- pull(tib, racktank) #make character vector
+ATaCaMpK.dat$SpeciesLevel <- rep("MpK",25)
+ATaCaMpK.dat$TempLevel <- rep("Ta",25)
+ATaCaMpK.dat$pCO2Level <- rep("Ca",25)
+
+ATaCaMpK.dat <- ATaCaMpK.dat[,c(4,5,6,7,1,2,3)]
+```
+
+```{r TaC+}
+ATaCpMpK.dat <- tidyr::expand_grid(ATaCpM.dat$WWincreaseMTOTAL, ATaCpK.dat$SSWWincrease)
+colnames(ATaCpMpK.dat)[1] <- "WWincreaseMTOTAL" #to keep column names the same. will make merging easier
+colnames(ATaCpMpK.dat)[2] <- "SSWWincrease" 
+ATaCpMpK.dat$TotalBiomass <- ATaCpMpK.dat$WWincreaseMTOTAL+ATaCpMpK.dat$SSWWincrease
+
+RTTaCpMpK <- tidyr::expand_grid(ATaCpM.dat$racktank, ATaCpK.dat$racktank)
+tib <- unite(RTTaCpMpK, col = "racktank", sep = "_") #unite(table5, century, year, col = "year", sep = "")
+ATaCpMpK.dat$racktank <- pull(tib, racktank) 
+ATaCpMpK.dat$SpeciesLevel <- rep("MpK",25)
+ATaCpMpK.dat$TempLevel <- rep("Ta",25)
+ATaCpMpK.dat$pCO2Level <- rep("C+",25)
+
+ATaCpMpK.dat <- ATaCpMpK.dat[,c(4,5,6,7,1,2,3)]
+```
+
+```{r T+Ca}
+ATpCaMpK.dat <- tidyr::expand_grid(ATpCaM.dat$WWincreaseMTOTAL, ATpCaK.dat$SSWWincrease)
+colnames(ATpCaMpK.dat)[1] <- "WWincreaseMTOTAL" #to keep column names the same. will make merging easier
+colnames(ATpCaMpK.dat)[2] <- "SSWWincrease" 
+ATpCaMpK.dat$TotalBiomass <- ATpCaMpK.dat$WWincreaseMTOTAL+ATpCaMpK.dat$SSWWincrease
+
+RTTpCaMpK <- tidyr::expand_grid(ATpCaM.dat$racktank, ATpCaK.dat$racktank)
+tib <-   unite(RTTpCaMpK, col = "racktank", sep = "_") #unite(table5, century, year, col = "year", sep = "")
+ATpCaMpK.dat$racktank <- pull(tib, racktank) 
+ATpCaMpK.dat$SpeciesLevel <- rep("MpK",25)
+ATpCaMpK.dat$TempLevel <- rep("T+",25)
+ATpCaMpK.dat$pCO2Level <- rep("Ca",25)
+
+ATpCaMpK.dat <- ATpCaMpK.dat[,c(4,5,6,7,1,2,3)]
+```
+
+```{r T+C+}
+ATpCpMpK.dat <- tidyr::expand_grid(ATpCpM.dat$WWincreaseMTOTAL, ATpCpK.dat$SSWWincrease)
+colnames(ATpCpMpK.dat)[1] <- "WWincreaseMTOTAL" #to keep column names the same. will make merging easier
+colnames(ATpCpMpK.dat)[2] <- "SSWWincrease" 
+ATpCpMpK.dat$TotalBiomass <- ATpCpMpK.dat$WWincreaseMTOTAL+ATpCpMpK.dat$SSWWincrease
+
+RTTpCpMpK <- tidyr::expand_grid(ATpCpM.dat$racktank, ATpCpK.dat$racktank)
+tib <- unite(RTTpCpMpK, col = "racktank", sep = "_") #unite(table5, century, year, col = "year", sep = "")
+ATpCpMpK.dat$racktank <- pull(tib, racktank) 
+ATpCpMpK.dat$SpeciesLevel <- rep("MpK",25)
+ATpCpMpK.dat$TempLevel <- rep("T+",25)
+ATpCpMpK.dat$pCO2Level <- rep("C+",25)
+
+ATpCpMpK.dat <- ATpCpMpK.dat[,c(4,5,6,7,1,2,3)]
+```
+
+```{r T++Ca}
+ATppCaMpK.dat <- tidyr::expand_grid(ATppCaM.dat$WWincreaseMTOTAL, ATppCaK.dat$SSWWincrease)
+colnames(ATppCaMpK.dat)[1] <- "WWincreaseMTOTAL" #to keep column names the same. will make merging easier
+colnames(ATppCaMpK.dat)[2] <- "SSWWincrease" 
+ATppCaMpK.dat$TotalBiomass <- ATppCaMpK.dat$WWincreaseMTOTAL+ATppCaMpK.dat$SSWWincrease
+
+RTTppCaMpK <- tidyr::expand_grid(ATppCaM.dat$racktank, ATppCaK.dat$racktank)
+tib <- unite(RTTppCaMpK, col = "racktank", sep = "_") #unite(table5, century, year, col = "year", sep = "")
+ATppCaMpK.dat$racktank <- pull(tib, racktank) 
+ATppCaMpK.dat$SpeciesLevel <- rep("MpK",25)
+ATppCaMpK.dat$TempLevel <- rep("T++",25)
+ATppCaMpK.dat$pCO2Level <- rep("Ca",25)
+
+ATppCaMpK.dat <- ATppCaMpK.dat[,c(4,5,6,7,1,2,3)]
+```
+
+```{r T++C+}
+ATppCpMpK.dat <- tidyr::expand_grid(ATppCpM.dat$WWincreaseMTOTAL, ATppCpK.dat$SSWWincrease)
+colnames(ATppCpMpK.dat)[1] <- "WWincreaseMTOTAL" #to keep column names the same. will make merging easier
+colnames(ATppCpMpK.dat)[2] <- "SSWWincrease" 
+ATppCpMpK.dat$TotalBiomass <- ATppCpMpK.dat$WWincreaseMTOTAL+ATppCpMpK.dat$SSWWincrease
+
+RTTppCpMpK <- tidyr::expand_grid(ATppCpM.dat$racktank, ATppCpK.dat$racktank)
+tib <-  unite(RTTppCpMpK, col = "racktank", sep = "_") #unite(table5, century, year, col = "year", sep = "")
+ATppCpMpK.dat$racktank <- pull(tib, racktank) 
+ATppCpMpK.dat$SpeciesLevel <- rep("MpK",25)
+ATppCpMpK.dat$TempLevel <- rep("T++",25)
+ATppCpMpK.dat$pCO2Level <- rep("C+",25)
+
+ATppCpMpK.dat <- ATppCpMpK.dat[,c(4,5,6,7,1,2,3)]
+```
+
+combine
+```{r}
+MpKall.dat <- dplyr::bind_rows(Accum.dat, ATaCaMpK.dat, ATaCpMpK.dat, ATpCaMpK.dat, ATpCpMpK.dat, ATppCaMpK.dat, ATppCpMpK.dat)
+head(MpKall.dat)
+```
+
+```{r}
+#write.csv(MpKall.dat,"2024-01-17_MesocosmExperiment_AccumulatedBiomass.csv", row.names = TRUE) #export 
+```
+
+for some reason, G3 (MT+Ca)had very fat mussels!
+
+# 4. Plotting for exploration
+## 4.1 Mussels
+```{r}
+#to order the Temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+MWWin.dat$TempLevel <- factor(MWWin.dat$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+MWWin.dat$pCO2Level <- factor(MWWin.dat$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+MWWinMKM.dat <- MWWin.dat[MWWin.dat$SpeciesLevel=="M" | MWWin.dat$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+MWWinMKM.dat_mod <- MWWinMKM.dat %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(SpeciesLevel = recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+
+```
+
+```{r}
+names(MWWinMKM.dat)
+```
+
+
+```{r Mussel average WW in}
+FigureMWWavgin <- ggplot(MWWinMKM.dat_mod, aes(x=TempLevel, y=avgMusselWWIN, colour=TempLevel, fill=pCO2Level))  
+FigureMWWavgin+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Average wet weight per mussel at the start of the experiment [g]", x="Temperature Level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+outliers from when we ran out of mussels in our target size class, i.e. when we created one mussel assemblage per treatment with smaller mussels
+```{r}
+ggsave(path="Plots", filename="2022-09-01_MusselAvgWWIN.png", width=9, height=4) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+```{r}
+#to order the Temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+MWWout.dat$TempLevel <- factor(MWWout.dat$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+MWWout.dat$pCO2Level <- factor(MWWout.dat$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+MWWoutMKM.dat <- MWWout.dat[MWWout.dat$SpeciesLevel=="M" | MWWout.dat$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+MWWoutMKM.dat_mod <- MWWoutMKM.dat %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+
+
+
+```
+
+```{r}
+names(MWWoutMKM.dat)
+```
+
+
+
+```{r Mussel biomass growth rate}
+FigureMWWincrD <- ggplot(MWWoutMKM.dat_mod, aes(x=TempLevel, y=WWincreaseD, colour=TempLevel, fill=pCO2Level))  
+FigureMWWincrD+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Mussel biomass growth rate [mg * d^-1]", x="Temperature Level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-09-01_MusselBiomassGrowthRate.png", width=9, height=5) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+## 4.2 Seeded String (Kelp)
+```{r}
+#to order the Temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+SSin.dat$TempLevel <- factor(SSin.dat$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+SSin.dat$pCO2Level <- factor(SSin.dat$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+SSinKKM.dat <- SSin.dat[SSin.dat$SpeciesLevel=="K" | SSin.dat$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+SSinKKM.dat_mod <- SSinKKM.dat %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(SpeciesLevel = recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+
+```
+
+```{r}
+names(SSinKKM.dat)
+```
+```{r Seeded String WW in}
+FigureSSWWin <- ggplot(SSinKKM.dat_mod, aes(x=TempLevel, y=SSTotalWWin, colour=TempLevel, fill=pCO2Level))  
+
+FigureSSWWin+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Initial wet weight of seeded string [g]", x="Temperature Level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-09-02_SeededStringWWIN.png", width=9, height=3) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+```{r}
+#to order the Temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+SSout.dat$TempLevel <- factor(SSout.dat$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+SSout.dat$pCO2Level <- factor(SSout.dat$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+SSoutKKM.dat <- SSout.dat[SSout.dat$SpeciesLevel=="K" | SSout.dat$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+SSoutKKM.dat_mod <- SSoutKKM.dat %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(SpeciesLevel = recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+
+```
+
+```{r}
+names(SSoutKKM.dat)
+```
+```{r Seeded String WW out}
+FigureSSWWout <- ggplot(SSoutKKM.dat_mod, aes(x=TempLevel, y=SSTotalWWout, colour=TempLevel, fill=pCO2Level))  
+FigureSSWWout+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Final wet weight of seeded string [g]", x="Temperature Level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-09-02_SeededStringWWOUT.png", width=9, height=3) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+```{r Seeded String WW increase}
+FigureSSWWincrease <- ggplot(SSoutKKM.dat_mod, aes(x=TempLevel, y=SSWWincrease, colour=TempLevel, fill=pCO2Level))  
+FigureSSWWincrease+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Increase in wet weight of seeded string [g]", x="Temperature Level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-09-02_SeededStringWWIncrease.png", width=9, height=3) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+```{r Seeded String number of Kelp individuals}
+FigureSSnK <- ggplot(SSoutKKM.dat_mod, aes(x=TempLevel, y=nKelp, colour=TempLevel, fill=pCO2Level))  
+FigureSSnK+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Number of kelp individuals on seeded string", x="Temperature Level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_blank(),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-09-02_KelpIndividuals.png", width=9, height=3) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+# 5. Summary statistics for exploration
+## 5.1 Mussels
+mussels in total ww
+```{r}
+summary(MWWinMKM.dat)
+MWWinMKM.datSummary <- MWWinMKM.dat %>%
+  #group_by(treatment) %>%
+    summarise(mean=round(mean(TotalWW, na.rm=TRUE),2),
+                sd=round(sd(TotalWW, na.rm=TRUE),2),
+                se=round(((sd(TotalWW))/(sqrt(length(TotalWW)))),2),
+                median=round(median(TotalWW, na.rm=TRUE),2),
+                MAD=round(mad(TotalWW, na.rm=TRUE),2))
+```
+mussesl in avg WW
+```{r}
+MWWavginMKM.datSummary <- MWWinMKM.dat %>%
+  #group_by(treatment) %>%
+    summarise(mean=round(mean(avgMusselWWIN, na.rm=TRUE),4),
+                sd=round(sd(avgMusselWWIN, na.rm=TRUE),4),
+                se=round(((sd(avgMusselWWIN))/(sqrt(length(avgMusselWWIN)))),4),
+                median=round(median(avgMusselWWIN, na.rm=TRUE),4),
+                MAD=round(mad(avgMusselWWIN, na.rm=TRUE),4))
+```
+
+
+mussels out total WW [g]
+```{r}
+summary(MWWoutMKM.dat)
+MWWoutMKM.datSummary <- MWWoutMKM.dat %>%
+  group_by(treatment) %>%
+    summarise(mean=round(mean(WWMusselsOUT, na.rm=TRUE),2),
+                sd=round(sd(WWMusselsOUT, na.rm=TRUE),2),
+                se=round(((sd(WWMusselsOUT))/(sqrt(length(WWMusselsOUT)))),2),
+                median=round(median(WWMusselsOUT, na.rm=TRUE),2),
+                MAD=round(mad(WWMusselsOUT, na.rm=TRUE),2))
+```
+```{r}
+#write.csv(MWWoutMKM.datSummary,"2022-09-02_MusselTotalWWOUTSummaryStatisticsPerTreatment.csv", row.names = TRUE) #export 
+```
+
+mussesl out avg WW [g]
+```{r}
+MWWavgoutMKM.datSummary <- MWWoutMKM.dat %>%
+  group_by(treatment) %>%
+    summarise(mean=round(mean(avgMusselWWOUT, na.rm=TRUE),4),
+                sd=round(sd(avgMusselWWOUT, na.rm=TRUE),4),
+                se=round(((sd(avgMusselWWOUT))/(sqrt(length(avgMusselWWOUT)))),4),
+                median=round(median(avgMusselWWOUT, na.rm=TRUE),4),
+                MAD=round(mad(avgMusselWWOUT, na.rm=TRUE),4))
+```
+```{r}
+write.csv(MWWavgoutMKM.datSummary,"2022-09-02_MusselaverageWWOUTSummaryStatisticsPerTreatment.csv", row.names = TRUE) #export 
+```
+
+daily increase in WW [mg]
+```{r}
+MWWincreaseDMKM.datSummary <- MWWoutMKM.dat %>%
+  group_by(treatment) %>%
+    summarise(mean=round(mean(WWincreaseD, na.rm=TRUE),2),
+                sd=round(sd(WWincreaseD, na.rm=TRUE),2),
+                se=round(((sd(WWincreaseD))/(sqrt(length(WWincreaseD)))),2),
+                median=round(median(WWincreaseD, na.rm=TRUE),2),
+                MAD=round(mad(WWincreaseD, na.rm=TRUE),2))
+```
+```{r}
+#write.csv(MWWincreaseDMKM.datSummary,"2022-09-02_MusselDailyWWincreaseSummaryStatisticsPerTreatment.csv", row.names = TRUE) #export 
+```
+
+
+## 5.2 Seeded String
+```{r}
+SSinKKM.datSummary <- SSinKKM.dat %>%
+  #group_by(treatment) %>%
+    summarise(mean=round(mean(SSTotalWWin, na.rm=TRUE),2),
+                sd=round(sd(SSTotalWWin, na.rm=TRUE),2),
+                se=round(((sd(SSTotalWWin))/(sqrt(length(SSTotalWWin)))),2),
+                median=round(median(SSTotalWWin, na.rm=TRUE),2),
+                MAD=round(mad(SSTotalWWin, na.rm=TRUE),2))
+```
+```{r}
+#write.csv(MWWincreaseDMKM.datSummary,"2022-09-02_MusselDailyWWincreaseSummaryStatisticsPerTreatment.csv", row.names = TRUE) #export 
+```
+
+# 6. Statistical analyses
+## 6.1 Mussels - average daily wet weight growth rate == biomass accumulation
+multi-factorial ANOVA untransformed 
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for unbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+
+```{r}
+names(MWWout.datMKM)
+```
+```{r}
+hist(MWWout.datMKM$WWincrease)
+```
+
+```{r}
+table(MWWout.datMKM$treatment, useNA="ifany") #balanced design!
+```
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly")) #to consider type III sums of squares
+Model1<-aov(MWWout.datMKM$WWincrease*1000 ~ MWWout.datMKM$SpeciesLevel*MWWout.datMKM$TempLevel*MWWout.datMKM$pCO2Level) #[mg] #Model1 multi-factorial
+```
+```{r}
+#check_model(Model1) #requires library(performance)
+```
+
+
+```{r}
+summary(Model1) #main effects of SpeciesLevel and temperature significant (<0.01), rest insignificant
+
+#Diagnostics
+#homogeneity of variances
+#graphical
+plot(resid(Model1)~fitted(Model1))+
+abline(h=0, lwd=2, col="black") #okish
+#statistical
+fligner.test(MWWout.datMKM$WWincrease ~ MWWout.datMKM$SpeciesLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(MWWout.datMKM$WWincrease ~ MWWout.datMKM$TempLevel)
+fligner.test(MWWout.datMKM$WWincrease ~ MWWout.datMKM$pCO2Level)
+fligner.test(MWWout.datMKM$WWincrease ~ interaction(MWWout.datMKM$SpeciesLevel, MWWout.datMKM$TempLevel,MWWout.datMKM$pCO2Level))
+leveneTest(MWWout.datMKM$WWincrease ~ MWWout.datMKM$SpeciesLevel*MWWout.datMKM$TempLevel*MWWout.datMKM$pCO2Level)
+leveneTest(MWWout.datMKM$WWincrease ~ MWWout.datMKM$SpeciesLevel) #requires library(car)
+
+#normality of errors
+#graphical
+hist(resid(Model1))
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1)) #insignificant, i.e. data not normally distributed
+
+#influential data points
+plot(cooks.distance(Model1),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1)
+```
+                                                                          Df Sum Sq Mean Sq F value   Pr(>F)    
+MWWout.datMKM$SpeciesLevel                                                  1  18508   18508  22.073 2.23e-05 ***
+MWWout.datMKM$TempLevel                                                     2   4022    2011   2.398    0.102    
+MWWout.datMKM$pCO2Level                                                     1    688     688   0.821    0.369    
+MWWout.datMKM$SpeciesLevel:MWWout.datMKM$TempLevel                          2   3280    1640   1.956    0.153    
+MWWout.datMKM$SpeciesLevel:MWWout.datMKM$pCO2Level                          1   1363    1363   1.626    0.208    
+MWWout.datMKM$TempLevel:MWWout.datMKM$pCO2Level                             2    155      77   0.092    0.912    
+MWWout.datMKM$SpeciesLevel:MWWout.datMKM$TempLevel:MWWout.datMKM$pCO2Level  2    200     100   0.119    0.888    
+Residuals                                                                  48  40248     839                                                                                                                                                         
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+
+## 6.2 Seeded string and kelp individuals
+### 6.2.1 ANOVA on seeded string
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for inbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+
+```{r}
+names(SSout.dat)
+```
+```{r}
+hist(SSout.dat$SSWWincrease) #looks best
+hist(sqrt(SSout.dat$SSWWincrease))
+hist(log(SSout.dat$SSWWincrease))
+hist(SSout.dat$nKelp) #use glm poisson here
+```
+
+
+```{r}
+Model1<-aov(SSout.dat$SSWWincrease ~ SSout.dat$SpeciesLevel*SSout.dat$TempLevel*SSout.dat$pCO2Level) #Model1 multi-factorial
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1) #main effects of SpeciesLevel and temperature significant (<0.01), rest insignificant
+Anova(Model1, type=3)
+
+#Diagnostics for Model1u8
+#homogeneity of variances
+#graphical
+plot(resid(Model1)~fitted(Model1))+
+abline(h=0, lwd=2, col="black") #ok
+#statistical
+leveneTest(SSout.dat$SSWWincrease ~ SSout.dat$SpeciesLevel*SSout.dat$TempLevel*SSout.dat$pCO2Level)
+leveneTest(SSout.dat$SSWWincrease ~ SSout.dat$SpeciesLevel) #requires library(car)
+leveneTest(resid(Model1) ~ SSout.dat$SpeciesLevel)
+
+#normality of errors
+#graphical
+hist(resid(Model1)) #ok
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1)) #insignificant, i.e. data normally distributed
+
+#influential data points
+plot(cooks.distance(Model1),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1 -3 are considered "normal"
+#hm
+plot(residuals(Model1))
+
+```
+full model
+                                                               Df Sum Sq Mean Sq F value   Pr(>F)    
+SSout.dat$SpeciesLevel                                          1 1.1125  1.1125  17.156 0.000139 ***
+SSout.dat$TempLevel                                             2 0.0019  0.0009   0.014 0.985739    
+SSout.dat$pCO2Level                                             1 0.0476  0.0476   0.734 0.395820    
+SSout.dat$SpeciesLevel:SSout.dat$TempLevel                      2 0.1505  0.0753   1.161 0.321921    
+SSout.dat$SpeciesLevel:SSout.dat$pCO2Level                      1 0.1373  0.1373   2.117 0.152174    
+SSout.dat$TempLevel:SSout.dat$pCO2Level                         2 0.3686  0.1843   2.842 0.068155 .  
+SSout.dat$SpeciesLevel:SSout.dat$TempLevel:SSout.dat$pCO2Level  2 0.0932  0.0466   0.718 0.492721    
+Residuals                                                      48 3.1126  0.0648                     
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+36 observations deleted due to missingness
+
+                       Df Sum Sq Mean Sq F value   Pr(>F)    
+SSout.dat$SpeciesLevel  1 0.6114  0.6114   14.62 0.000323 ***
+Residuals              58 2.4253  0.0418                     
+
+```{r}
+TukeyHSD(Model1)
+```
+
+
+### 6.2.2 GLM on kelp individuals
+```{r}
+hist(SSout.dat$nKelp) #use glm poisson here
+```
+```{r}
+max(SSout.dat$nKelp[SSout.dat$SpeciesLevel=="KM"])
+```
+
+
+```{r}
+#check the variance of each predictor variable for homogeneity
+fligner.test(SSout.dat$nKelp ~ SSout.dat$SpeciesLevel) #significant, i.e. so variances cannot be assumed to be homogeneous. Makes sense because I didn't find any kelp in the KM treatments
+fligner.test(SSout.dat$nKelp ~ SSout.dat$TempLevel) #not significant
+fligner.test(SSout.dat$nKelp ~ SSout.dat$pCO2Level) #not significant
+fligner.test(SSout.dat$nKelp ~ interaction(SSout.dat$TempLevel, SSout.dat$pCO2Level)) #significant
+```
+Transformation won't make sense, because KM will stay 0
+So I'll subset the data set to K
+```{r}
+SSout.datK <- SSout.dat[SSout.dat$SpeciesLevel=="K",]
+
+#check the variance of each predictor variable for homogeneity
+fligner.test(SSout.datK$nKelp ~ SSout.datK$TempLevel) #not significant
+fligner.test(SSout.datK$nKelp ~ SSout.datK$pCO2Level) #not significant
+fligner.test(SSout.datK$nKelp ~ interaction(SSout.datK$TempLevel, SSout.datK$pCO2Level)) #insignificant
+```
+
+```{r}
+mean(SSout.datK$nKelp) #3.2
+hist(SSout.datK$nKelp)
+hist(log(SSout.datK$nKelp))
+hist(sqrt(SSout.datK$nKelp))
+hist(scale(SSout.datK$nKelp))
+```
+
+run a quasipoisson model to check if it is over- or underdispersed (see Mark's GAME lectures)
+If the variance is larger than the mean, the model is overdispersed. In this case a glm poisson should not be used.
+If the model is over- or underdispersed use glm quasipoisson instead of glm poisson.
+If the model is highly overdispersed use glm negative binomial instead of glm quasipoisson.
+Negative binomial distributions can handle zero-inflated data.
+
+Check the dispersion parameter
+If the dispersion parameter is greater than 2 the model is overdispersed.
+If the dispersion parameter is smaller than 0.7 the model is underdispersed.
+If the dispersion parameter is greater than 15 the model is highly overdispersed.
+
+```{r}
+GLM1 <- glm(SSout.datK$nKelp ~ SSout.datK$TempLevel*SSout.datK$pCO2Level, family=quasipoisson)
+summary(GLM1)
+
+#homogeneity of variances
+plot(resid(GLM1)~fitted(GLM1))+
+abline(h=0, lwd=2, lty=2, col="black")
+
+#normality of errors
+hist(resid(GLM1))
+shapiro.test(resid(GLM1))
+
+#influential data points
+plot(cooks.distance(GLM1), type="h") #all <1 so no problem
+
+anova(GLM1, test="Chisq")
+summary(GLM1)
+
+drop1(GLM1, test="F")
+
+
+# from the DHARMa package
+library(DHARMa)
+  n_sim <- 250
+  simulationOutput <- simulateResiduals(fittedModel = GLMs1, n = n_sim)
+  plot(simulationOutput, asFactor = F)
+```
+#### 
+summary output
+Model is overdispersed (GLM1 dispersion parameter 4.1)
+Call:
+glm(formula = SSout.datK$nKelp ~ SSout.datK$TempLevel * SSout.datK$pCO2Level, 
+    family = quasipoisson)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-3.2249  -2.0011  -0.2625   0.6897   4.3349  
+
+Coefficients:
+                                            Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                                  1.11321    0.21470   5.185  2.6e-05 ***
+SSout.datK$TempLevel1                        0.29270    0.28277   1.035    0.311    
+SSout.datK$TempLevel2                       -0.05148    0.30698  -0.168    0.868    
+SSout.datK$pCO2Level1                        0.03801    0.21470   0.177    0.861    
+SSout.datK$TempLevel1:SSout.datK$pCO2Level1 -0.28077    0.28277  -0.993    0.331    
+SSout.datK$TempLevel2:SSout.datK$pCO2Level1  0.23526    0.30698   0.766    0.451    
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+(Dispersion parameter for quasipoisson family taken to be 4.024563)
+
+    Null deviance: 110.20  on 29  degrees of freedom
+Residual deviance: 100.31  on 24  degrees of freedom
+AIC: NA
+
+Number of Fisher Scoring iterations: 6
+
+####
+anova output
+Analysis of Deviance Table
+
+Model: quasipoisson, link: log
+
+Response: SSout.datK$nKelp
+
+Terms added sequentially (first to last)
+
+
+                                          Df Deviance Resid. Df Resid. Dev Pr(>Chi)
+NULL                                                         29     110.20         
+SSout.datK$TempLevel                       2   5.1614        27     105.04   0.5266
+SSout.datK$pCO2Level                       1   0.0000        26     105.04   1.0000
+SSout.datK$TempLevel:SSout.datK$pCO2Level  2   4.7302        24     100.31   0.5556
+
+
+## 6.3 total accumulated biomass of mussels and algae grown together vs. the sum of mussels and algae
+reduce data frame
+```{r}
+MpKvsKM.dat <- MpKall.dat[MpKall.dat$SpeciesLevel=="KM"|MpKall.dat$SpeciesLevel=="MpK",]
+```
+### 6.3.1 ANOVA
+multi-factorial ANOVA untransformed 
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for unbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+
+```{r}
+names(MpKvsKM.dat)
+```
+```{r}
+hist(MpKvsKM.dat$TotalBiomass)
+```
+unbalanced design! KM has 5 replicates per TempLevel-pCO2Level-combination, MpK 25
+```{r}
+table(MpKvsKM.dat$SpeciesLevel, useNA="ifany") #balanced design!
+```
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly")) #to consider type III sums of squares
+Model1<-aov(MpKvsKM.dat$TotalBiomass ~ MpKvsKM.dat$SpeciesLevel*MpKvsKM.dat$TempLevel*MpKvsKM.dat$pCO2Level) #[g] #Model1 multi-factorial
+```
+
+```{r}
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1) #main effects of pCO2 marginally significant, rest insignificant
+Anova(Model1, type=3)
+
+# remove insignificant 3-way interaction
+Model1u1 <-update(Model1,~.-MpKvsKM.dat$SpeciesLevel:MpKvsKM.dat$TempLevel:MpKvsKM.dat$pCO2Level, data= MpKvsKM.dat)
+anova(Model1, Model1u1) #removal ok if p>0.05, which is the case here
+summary(Model1u1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1u1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1u2a <-update(Model1u1,~.-MpKvsKM.dat$TempLevel:MpKvsKM.dat$pCO2Level, data= MpKvsKM.dat)
+anova(Model1u1, Model1u2a) #ok
+
+Model1u2b <-update(Model1u1,~.-MpKvsKM.dat$SpeciesLevel:MpKvsKM.dat$pCO2Level, data=MpKvsKM.dat)
+anova(Model1u1, Model1u2b) #ok
+
+Model1u2c <-update(Model1u1,~.-MpKvsKM.dat$SpeciesLevel:MpKvsKM.dat$TempLevel, data=MpKvsKM.dat)
+anova(Model1u1, Model1u2c) #not ok
+
+Model1u3 <-update(Model1u1,~.-MpKvsKM.dat$TempLevel:MpKvsKM.dat$pCO2Level, data= MpKvsKM.dat)
+anova(Model1u1, Model1u3) #ok
+
+Model1u4 <-update(Model1u3,~.-MpKvsKM.dat$SpeciesLevel:MpKvsKM.dat$pCO2Level, data=MpKvsKM.dat)
+anova(Model1u3, Model1u4) #ok
+Anova(Model1u4, type=3)
+summary(Model1u4)
+
+#all remaining elements are significant, i.e. Model 1u4 is the final model
+```
+Anova Table (Type III tests)
+
+Response: MpKvsKM.dat$TotalBiomass
+                                               Sum Sq  Df   F value    Pr(>F)    
+(Intercept)                                    791.08   1 1547.0162 < 2.2e-16 ***
+MpKvsKM.dat$SpeciesLevel                        35.57   1   69.5653 2.243e-14 ***
+MpKvsKM.dat$TempLevel                            3.44   2    3.3600   0.03702 *  
+MpKvsKM.dat$pCO2Level                            3.20   1    6.2552   0.01331 *  
+MpKvsKM.dat$SpeciesLevel:MpKvsKM.dat$TempLevel   4.04   2    3.9456   0.02110 *  
+Residuals                                       88.46 173                        
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+```{r}
+check_model(Model1u4) #requires library(performance)
+```
+
+
+```{r}
+summary(Model1u4) #all main effects significant, significant interaction of SpeciesLevel and TempLevel
+
+#Diagnostics
+#homogeneity of variances
+#graphical
+plot(resid(Model1u4)~fitted(Model1u4))+
+abline(h=0, lwd=2, col="black") #okish
+#statistical
+fligner.test(MpKvsKM.dat$TotalBiomass ~ MpKvsKM.dat$SpeciesLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(MpKvsKM.dat$TotalBiomass ~ MpKvsKM.dat$TempLevel) #insignificant
+fligner.test(MpKvsKM.dat$TotalBiomass ~ MpKvsKM.dat$pCO2Level) #insignificant
+fligner.test(MpKvsKM.dat$TotalBiomass ~ interaction(MpKvsKM.dat$SpeciesLevel, MpKvsKM.dat$TempLevel, MpKvsKM.dat$pCO2Level)) #significant
+leveneTest(MpKvsKM.dat$TotalBiomass ~ MpKvsKM.dat$SpeciesLevel*MpKvsKM.dat$TempLevel*MpKvsKM.dat$pCO2Level) #significant
+leveneTest(MpKvsKM.dat$TotalBiomass ~ MpKvsKM.dat$SpeciesLevel) #requires library(car) #insignificant
+
+#normality of errors
+#graphical
+hist(resid(Model1u4)) #hm
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1u4)) #significant, i.e. data not normally distributed
+
+#influential data points
+plot(cooks.distance(Model1u4),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1u4) #problematic
+```
+
+### 6.3.2 Scheirer-Hay-Hare test
+https://rcompanion.org/handbook/F_14.html
+The Scheirer–Ray–Hare test is a nonparametric test used for a two-way factorial design.   It appears to be not well documented, but it is discussed in Sokal and Rohlf (1995).  
+It has been suggested that the observations should be balanced and that each cell in the interaction should have at least five observations.
+Note that for unbalanced designs, the scheirerRayHare function uses a type-II sum-of-squares approach by default.  There is an option to use type-I sum-of-squares.
+
+Post-hoc tests
+Appropriate post-hoc tests might be Dunn test for each significant factor or interaction
+The packages used in this chapter include:
+
+•  rcompanion
+
+•  FSA
+
+The following commands will install these packages if they are not already installed:
+```{r}
+if(!require(rcompanion)){install.packages("rcompanion")} #for scheirer-ray-hare test
+if(!require(FSA)){install.packages("FSA")} #for post hoc dunn test
+```
+
+```{r}
+scheirerRayHare(TotalBiomass ~ SpeciesLevel + TempLevel + SpeciesLevel:TempLevel, data=MpKvsKM.dat, type=2) 
+scheirerRayHare(TotalBiomass ~ SpeciesLevel + TempLevel + SpeciesLevel:TempLevel, data=MpKvsKM.dat, type=1) 
+scheirerRayHare(TotalBiomass ~ SpeciesLevel + pCO2Level + SpeciesLevel:pCO2Level, data=MpKvsKM.dat) 
+scheirerRayHare(TotalBiomass ~ TempLevel + pCO2Level + TempLevel:pCO2Level, data=MpKvsKM.dat) 
+scheirerRayHare(TotalBiomass ~ SpeciesLevel + TempLevel + pCO2Level, data=MpKvsKM.dat, type=1) 
+
+scheirerRayHare(TotalBiomass ~ SpeciesLevel + TempLevel + SpeciesLevel:TempLevel, data=MpKall.dat, type=2) 
+
+```
+significant effects of SpeciesLevel and TempLevel, no significant interaction, no effect of pCO2Level
+type of sums of squares don't make a difference
+
+
+post hoc: Dunn test (requires library(FSA))
+```{r}
+dunnTest(TotalBiomass ~ TempLevel, data=MpKvsKM.dat, method="bh") 
+dunnTest(TotalBiomass ~ TempLevel, data=MpKall.dat, method="bh") 
+dunnTest(TotalBiomass ~ SpeciesLevel, data=MpKall.dat, method="bh")
+```
+Comparison        Z           P.unadj           P.adj
+T+ - T++	    4.5060440	    6.604741e-06	    1.981422e-05	
+T+ - Ta	      3.6248075	    2.891767e-04	    4.337651e-04	
+T++ - Ta	    -0.8812364	  3.781899e-01	    3.781899e-01
+
+significant difference of T+ to both other temperature levels (<0.001)
+
+# 7 Retrospective power analysis, post-hoc
+## 7.1 Mussels
+Retrospective power analysis
+groups = number of factor levels
+n = number of observations per sample
+between.var = mean squares of the effect
+within.var = mean squares of the residuals
+sig.level = error rate (default is 0.05)
+power = the power you want to achieve
+
+NULL must be replaced by observed values. If you leave one of them as NULL,
+this one will be calculated from the rest.
+
+```{r}
+power.anova.test(groups=12, n=5, between.var=0.0862, within.var=0.0348, sig.level=0.05, power=NULL) #high power (1)
+```
+
+Find differences - Post-hoc comparisons
+```{r}
+TukeyHSD(Model1) #result here obvious, there are only 2 levels
+```
+only significant difference found:
+            diff        lwr        upr     p adj
+
+# 8. Plotting and summary stats for publication (based on statistical tests)
+## 8.1 mussels 
+```{r}
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+MWWout.datMKM_mod2 <- MWWout.datMKM %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "KM" = "Mussels and algae", "M" = "Mussels only"),
+         pCO2Level = dplyr::recode(pCO2Level, "C+" = "650 ppm", "Ca" = "450 ppm (ambient)"),
+         TempLevel = dplyr::recode(TempLevel, "T++" = "+2°C", "T+" = "+1°C", "Ta" = "ambient \n(9 - 12°C)"),
+         treatment = dplyr::recode(treatment, "KM_Ta_Ca"="MA_Ta_Ca", "KM_Ta_C+"="MA_Ta_C+", "KM_T+_Ca"="MA_T+_Ca", "KM_T+_C+"="MA_T+_C+", "KM_T++_Ca"="MA_T++_Ca", "KM_T++_C+"="MA_T++_C+"))
+
+#to place Mussels only first in the order of the SpeciesLevel levels
+MWWout.datMKM_mod2$SpeciesLevel <- factor(MWWout.datMKM_mod2$SpeciesLevel, levels = c("Mussels only", "Mussels and algae")) #specify factor levels in the order you want
+
+#to order the pCO2 levels in an increasing way
+MWWout.datMKM_mod2$pCO2Level <- factor(MWWout.datMKM_mod2$pCO2Level, levels = c("450 ppm (ambient)", "650 ppm")) #specify factor levels in the order you want
+
+#to order the Temperature levels in an increasing way
+#MWWout.datMKM_mod2$TempLevel <- factor(MWWout.datMKM_mod2$TempLevel, levels = c("ambient +2°C", "ambient +1°C", "ambient (9 - 12°C)")) #specify factor levels in the order you want
+
+#to order the combined Treatment levels in an increasing way
+MWWout.datMKM_mod2$treatment <- factor(MWWout.datMKM_mod2$treatment, levels = c("MA_Ta_Ca", "MA_Ta_C+", "MA_T+_Ca", "MA_T+_C+", "MA_T++_Ca", "MA_T++_C+", "M_Ta_Ca", "M_Ta_C+", "M_T+_Ca", "M_T+_C+", "M_T++_Ca", "M_T++_C+")) #specify factor levels in the order you want
+```
+
+```{r mussel daily wet weigt increase all data}
+#to order the Temperature levels in an increasing way
+MWWout.datMKM_mod2$TempLevel <- factor(MWWout.datMKM_mod2$TempLevel, levels = c("ambient \n(9 - 12°C)", "+1°C", "+2°C")) #specify factor levels in the order you want
+
+FigBMmeall<-ggplot(MWWout.datMKM_mod2, aes(x=TempLevel, y=WWincrease*1000, colour=TempLevel, fill=pCO2Level)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigBMmeall+
+  facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1.3, position="dodge")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.8), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data 
+  scale_y_continuous(breaks=seq(0,100,by=25))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("white", "grey80"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Average accummulated biomass \nper mussel [mg]")+ #labeling of axes
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_line(size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12, colour="black"), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=12, colour="black"),
+        axis.title=element_text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none")+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=130, label= " ") #guide_legend(order = 1, title=bquote("pCO"[2]~"level"), override.aes=list(colour="black", linewidth=1))
+```
+
+
+```{r}
+ggsave(path="Plots", filename="2023-01-24_MAccumulatedBiomass_mean-errorSE_all-data.png", width=7, height=4)#width=7 or 5
+```
+
+```{r mussel daily wet weigt increase only species main effect}
+FigBMme<-ggplot(MWWout.datMKM_mod2, aes(x=SpeciesLevel, y=WWincrease*1000)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigBMme+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1, position="dodge", colour="black", fill="white")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc)
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  #scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  #scale_fill_manual(values = c("grey70", "grey90"))+  #, labels = expression("...", "...") 
+  labs(x="none", y="none")+ #labeling of axes
+  scale_y_continuous(breaks=seq(0,100,by=25))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_blank(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_blank(),#text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=16),
+        axis.title=element_blank(),#text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+       # axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=16), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 16), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = guide_legend(order = 1, title="Temperature"))+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=90, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-11-23_MWWincreaseD_mean-errorSE3.png", width=4, height=4)#width=7 or 5
+```
+
+## 8.2 seeded string
+```{r}
+SSout.dat1 <- SSout.dat[SSout.dat$SpeciesLevel=="KM" | SSout.dat$SpeciesLevel=="K",]
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+SSout.dat_mod2 <- SSout.dat1 %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "KM" = "Mussels and algae", "M" = "Mussels only", "K"="Algae only"),
+         pCO2Level = dplyr::recode(pCO2Level, "C+" = "650 ppm", "Ca" = "450 ppm (ambient)"),
+         TempLevel = dplyr::recode(TempLevel, "T++" = "+2°C", "T+" = "+1°C", "Ta" = "ambient \n(9 - 12°C)"),
+         treatment = dplyr::recode(treatment, "KM_Ta_Ca"="MA_Ta_Ca", "KM_Ta_C+"="MA_Ta_C+", "KM_T+_Ca"="MA_T+_Ca", "KM_T+_C+"="MA_T+_C+", "KM_T++_Ca"="MA_T++_Ca", "KM_T++_C+"="MA_T++_C+"))
+
+#to place Mussels only first in the order of the SpeciesLevel levels
+SSout.dat_mod2$SpeciesLevel <- factor(SSout.dat_mod2$SpeciesLevel, levels = c("Mussels and algae", "Algae only")) #specify factor levels in the order you want
+
+#to order the pCO2 levels in an increasing way
+SSout.dat_mod2$pCO2Level <- factor(SSout.dat_mod2$pCO2Level, levels = c("450 ppm (ambient)", "650 ppm")) #specify factor levels in the order you want
+
+#to order the Temperature levels in an increasing way
+SSout.dat_mod2$TempLevel <- factor(SSout.dat_mod2$TempLevel, levels = c("ambient \n(9 - 12°C)", "+1°C", "+2°C")) #specify factor levels in the order you want
+
+#to order the combined Treatment levels in an increasing way
+#SSout.dat_mod2$treatment <- factor(SSout.dat_mod2$treatment, levels = c("MA_Ta_Ca", "MA_Ta_C+", "MA_T+_Ca", "MA_T+_C+", "MA_T++_Ca", "MA_T++_C+", "M_Ta_Ca", "M_Ta_C+", "M_T+_Ca", "M_T+_C+", "M_T++_Ca", "M_T++_C+")) #specify factor levels in the order you want
+```
+
+```{r}
+hist(SSout.dat_mod2$SSWWincrease)
+summary(SSout.dat_mod2$SSWWincrease)
+```
+
+
+```{r all data}
+FigBSSmeall<-ggplot(SSout.dat_mod2, aes(x=TempLevel, y=SSWWincrease, colour=TempLevel, fill=pCO2Level)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigBSSmeall+
+  facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1.3, position="dodge")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.8), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data 
+  scale_y_continuous(breaks=seq(0,1.9,by=0.5))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("white", "grey80"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Accumulated algal biomass [g]")+ #labeling of axes
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_line(size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12, colour="black"), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=12, colour="black"),
+        axis.title=element_text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none")+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=2.55, label= " ") 
+```
+```{r}
+ggsave(path="Plots", filename="2023-01-26_SSWWincrease_mean-errorSE_all-data.png", width=7, height=4)#width=7 or 5
+```
+
+```{r species main effect}
+FigBSSme<-ggplot(SSout.dat_mod2, aes(x=SpeciesLevel, y=SSWWincrease)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigBSSme+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1, position="dodge", colour="black", fill="white")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc)
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  #scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  #scale_fill_manual(values = c("grey70", "grey90"))+  #, labels = expression("...", "...") 
+  labs(x="none", y="none")+ #labeling of axes
+  scale_y_continuous(breaks=seq(0,1.9,by=0.5))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_blank(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_blank(),#text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=16),
+        axis.title=element_blank(),#text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+       # axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=16), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 16), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = guide_legend(order = 1, title="Temperature"))+ #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=1.7, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2023-01-26_SSWWincreaseD_mean-errorSE_species-main-effect.png", width=3, height=2)#width=7 or 5
+```
+
+```{r}
+tapply(SSout.dat$SSWWincrease, SSout.dat$SpeciesLevel, mean)
+```
+B        K       KM        M 
+      NA 1.283000 1.555333       NA
+
+
+
+## 8.3 total accumulated biomass
+make plots of all data (K, M, K+M, KM) split by temperature and pCO2; main effect of specieslevel and main effect of temp
+
+use MpKall.dat if including M and K, too
+use MpKvsKM.dat to only plot MpK and KM
+```{r}
+names(MpKall.dat)
+names(MpKvsKM.dat)
+
+
+#for better facet labeling I need to rename the levels of SpeciesLevel:
+MpKvsKM.dat_mod2 <- MpKvsKM.dat %>%    #requires tidyverse
+  # Rename levels of SpeciesLevel
+  mutate(pCO2Level = dplyr::recode(pCO2Level, "C+" = "elevated (645 ppm)", "Ca" = "ambient (450 ppm)"),
+         TempLevel = dplyr::recode(TempLevel, "T++" = "\n+2°C", "T+" = "\n+1°C", "Ta" = "\nambient (9 - 12°C)")) #for all data figure, or "T++" = "+2°C", "T+" = "+1°C", "Ta" = "ambient \n(9 - 12°C)" for temperature main effect  ADAPT IN LINE 532 ACCORDINGLY!
+#SpeciesLevel = dplyr::recode(SpeciesLevel, "KM" = "Mussels and algae", "M" = "Mussels only", "K" = "Algae only"), treatment = dplyr::recode(treatment, "KM_Ta_Ca"="MA_Ta_Ca", "KM_Ta_C+"="MA_Ta_C+", "KM_T+_Ca"="MA_T+_Ca", "KM_T+_C+"="MA_T+_C+", "KM_T++_Ca"="MA_T++_Ca", "KM_T++_C+"="MA_T++_C+")
+
+#to place Mussels only first in the order of the SpeciesLevel levels
+MpKvsKM.dat_mod2$SpeciesLevel <- factor(MpKvsKM.dat_mod2$SpeciesLevel, levels = c("MpK", "KM")) #specify factor levels in the order you want
+
+#to order the pCO2 levels in an increasing way
+MpKvsKM.dat_mod2$pCO2Level <- factor(MpKvsKM.dat_mod2$pCO2Level, levels = c("ambient (450 ppm)", "elevated (645 ppm)")) #specify factor levels in the order you want
+
+#to order the Temperature levels in an increasing way
+MpKvsKM.dat_mod2$TempLevel <- factor(MpKvsKM.dat_mod2$TempLevel, levels = c("\nambient (9 - 12°C)", "\n+1°C", "\n+2°C")) #specify factor levels in the order you want
+```
+
+```{r all data}
+FigAccum <- ggplot(MpKvsKM.dat_mod2, aes(x=SpeciesLevel, y=TotalBiomass, colour=TempLevel, fill=pCO2Level)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigAccum+
+  facet_grid(rows = vars(TempLevel), cols = vars(pCO2Level))+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1.3, position="dodge")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.8), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data 
+  scale_y_continuous(breaks=seq(0,4,by=0.5))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("white", "grey80"))+  #, labels = expression("...", "...") 
+  labs(x="Mussels and algae kept seperately (            ) or together (      )", y="Total accumulated biomass [g]")+ #labeling of axes
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_line(size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=14, colour="black"), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=14, colour="black"),
+        axis.title=element_text(size=14, , colour="black"),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=14), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 14), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none", x = guide_axis(n.dodge = 2)) #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=2.55, label= " ") 
+```
+```{r}
+ggsave(path="Plots", filename="2024-01-19_TotalAccumBiomassMpKvsKM_mean-errorSE_all-data5.png", width=6.5, height=9)#width=7 or 5
+```
+
+```{r all data flipped}
+FigAccum2 <- ggplot(MpKvsKM.dat_mod2, aes(x=SpeciesLevel, y=TotalBiomass, colour=TempLevel, fill=pCO2Level)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigAccum2+
+  facet_grid(cols = vars(TempLevel), rows = vars(pCO2Level))+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1.3, position="dodge")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.8), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data 
+  scale_y_continuous(breaks=seq(0,4,by=0.5))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("white", "grey80"))+  #, labels = expression("...", "...") 
+  labs(x="\nMussels and algae kept separately (            ) or together (      )", y="Total accumulated biomass [g]")+ #labeling of axes
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x = element_line(size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=14, colour="black"), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=14, colour="black"),
+        axis.title=element_text(size=14, , colour="black"),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+        #axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=14), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 14), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none", x = guide_axis(n.dodge = 2)) #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=2.55, label= " ") 
+```
+```{r}
+ggsave(path="Plots", filename="2024-01-22_TotalAccumBiomassMpKvsKM_mean-errorSE_all-data_flipped5.png", width=7.5, height=7)#width=7 or 5
+```
+
+
+```{r species main effect}
+FigAccumS <- ggplot(MpKvsKM.dat_mod2, aes(x=SpeciesLevel, y=TotalBiomass)) # colour needs to be character
+#FigBSSme<-ggplot(SSout.dat_mod2, aes(x=SpeciesLevel, y=SSWWincrease)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigAccumS+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, linewidth=1, position="dodge", colour="black", fill="white")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc)
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  #scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  #scale_fill_manual(values = c("grey70", "grey90"))+  #, labels = expression("...", "...") 
+  labs(x="Mussels and algae kept \nseparately or together", y="Total accumulated biomass [g]")+ #labeling of axes
+  scale_y_continuous(breaks=seq(0,4,by=0.5))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks.x =  element_line(size = 0.8), #element_blank(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10,  angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified) blank(),#
+        axis.text=element_text(size=12, , colour="black"),
+        axis.title=element_text(size=12),#size of the labels on the axes element_blank(),#
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+       # axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = guide_legend(order = 1, title="Temperature", x = guide_axis(n.dodge = 2))) #guide_legend(order = 2, title="Temperature")+
+  annotate("text", x=1, y=4, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2024-01-19_TotalAccumBiomassMpKvsKM_mean-errorSE_species-main-effect5_2.5.png", width=2.5, height=3)#width=7 or 5
+```
+
+```{r temp main effect}
+FigAccumT <- ggplot(MpKvsKM.dat_mod2, aes(x=TempLevel, y=TotalBiomass, colour=TempLevel, fill=TempLevel)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigAccumT+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8)+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  scale_y_continuous(breaks=seq(0,4,by=0.5))+
+  scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("skyblue", "royalblue", "blue3"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Total accumulated biomass [g]")+ #labeling of axes x="none", 
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks = element_line(colour="black", size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=12, colour="black"),#text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=12, colour="black"),
+        axis.title=element_text(size=12),#text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+       # axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=12), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 12), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none")+
+  annotate("text", x=1, y=3.5, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2024-01-19_TotalAccumBiomassMpKvsKM_mean-errorSE_temperature-main-effect2.png", width=3, height=3)#width=7 or 5
+```
+
+according to ANOVA (assumptions not met because of unhomogenous variances), there was a significant main effect of pCO2, too
+```{r pCO2 main effect}
+FigAccumC <- ggplot(MpKvsKM.dat_mod2, aes(x=pCO2Level, y=TotalBiomass, fill=pCO2Level)) # colour needs to be character , colour=TempLevel, fill=TempLevel , fill=SpeciesLevel
+FigAccumC+
+  #facet_wrap(.~SpeciesLevel, scales="free_x")+ #, strip.position = "bottom"
+  stat_summary(fun=mean, geom="bar", width=0.8, colour="black")+ # Layer 2: Plot the means as bars , colour="white"  NOTE: requires library(Hmisc) linewidth=0.7,size=10, , colour="black" , fill= "grey70" , fill=c("grey75", "grey50")
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.9), width=0.0, colour="black", linetype=1, linewidth=0.8)+# Layer 3: Add CIs as error bars using mean_cl_normal as fun.data
+  scale_y_continuous(breaks=seq(0,4,by=0.5))+
+  #scale_colour_manual(values = c("skyblue", "royalblue", "blue3"))+ 
+  scale_fill_manual(values = c("white", "grey80"))+  #, labels = expression("...", "...") 
+  labs(x="Temperature level", y="Total accumulated biomass [g]")+ #labeling of axes x="none", 
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black"), #colour of the x- axis; size= 0.8
+        axis.line.y=element_line(colour="black"), #colour of the y- axis; size= 0.8
+        axis.ticks = element_line(colour="black", size=0.8), #x axis tick; to include and modify width use element_line(size = 0.8)
+        #axis.ticks.length=unit(),#.25, "cm"
+        panel.grid=element_blank(), #no grid lines
+        axis.text.x=element_text(size=13, colour="black"),#text(size=12), #for size of the numbers along the axes; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=13, colour="black"),
+        axis.title=element_text(size=13),#text(size=12),#size of the labels on the axes 
+        #axis.title.y=element_text(size=12),#size of the labels on the axes
+       # axis.title.x=element_blank(),
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=13), #
+        #legend.title = element_text(),
+        strip.text = element_text(size = 13), #font size of facet labels
+        strip.background = element_blank() #removes facet label boxes
+        )+
+  guides(colour = "none", fill = "none")
+  annotate("text", x=1, y=0.13, label= " ") 
+```
+
+```{r}
+ggsave(path="Plots", filename="2024-01-19_TotalAccumBiomassMpKvsKM_mean-errorSE_temperature-main-effect.png", width=3.5, height=3)#width=7 or 5
+```
+
+
+
+
+# 9. Summary statistics
+need a factor called treatment
+```{r}
+MpKall.dat
+```
+
+```{r}
+names(MWWout.dat)
+tapply(MWWout.dat$WWincreaseMTOTAL, MWWout.dat$treatment, mean) #g
+tapply(MWWout.dat$SSWWincrease, MWWout.dat$treatment, mean) #g
+```
+Mussels
+KM_T+_C+  KM_T+_Ca KM_T++_C+ KM_T++_Ca  KM_Ta_C+  KM_Ta_Ca   M_T+_C+   M_T+_Ca  M_T++_C+  M_T++_Ca   M_Ta_C+   M_Ta_Ca 
+  1.84596   1.96588   1.90818   1.92960   1.77048   1.70212   1.24622   1.52782   0.59346   0.75258   0.50066   0.97834
+  
+Algae
+K_T+_C+   K_T+_Ca  K_T++_C+  K_T++_Ca   K_Ta_C+   K_Ta_Ca  KM_T+_C+  KM_T+_Ca KM_T++_C+ KM_T++_Ca  KM_Ta_C+  KM_Ta_Ca
+1.232     1.480     1.146     1.296     1.412     1.132     1.564     1.430     1.628     1.582     1.702     1.426
+```{r}
+names(MpKall.dat)
+tapply(MpKall.dat$WWincreaseMTOTAL, MpKall.dat$SpeciesLevel, mean) #g
+tapply(MpKall.dat$SSWWincrease, MpKall.dat$SpeciesLevel, mean) #g
+```
+Mussels
+       K       KM        M      MpK 
+      NA 1.853703 0.933180 0.933180
+      
+algae
+       K       KM        M      MpK 
+1.283000 1.555333       NA 1.283000
+
+```{r}
+names(MpKall.dat)
+tapply(MpKall.dat$WWincreaseMTOTAL, MpKall.dat$TempLevel, mean) #g
+#NA Why???
+```
+
+```{r}
+names(MpKvsKM.dat)
+tapply(MpKvsKM.dat$WWincreaseMTOTAL, MpKvsKM.dat$TempLevel, mean) #g
+tapply(MpKvsKM.dat$SSWWincrease, MpKvsKM.dat$TempLevel, mean) #g
+```
+Mussels
+       T+       T++        Ta 
+1.4735033 0.8806650 0.9056333 
+
+Algae
+      T+      T++       Ta 
+1.379500 1.285000 1.320667
+
+
+total accumulated biomass driven by mussels! did much better when algae were present. Clearance rate but also mortality increased with temperature, resulting in highest overall accumulated biomass at the medium temperature level of 0.8 'C warming where mussels fed more than at ambient temperature and died less often than at the highest temperature level of 2 'C warming. Algae biomass increased similarly at all treatments, while mussel biomass drove total accumulated biomass.
+Maybe add that repeating this experiment with growing macroalgae would be very interesting. Highlight that already those approximately 1.5 g of microalgae did have a significant effect on mussel performance
+
+I feel like there is something important about these results that I have not yet managed to emphasise enough (my nursing brain fails to fully grasp this). Something about the fact that the difference between 0.8 'C of warming and 2 'C warming can be huge in its ecological consequences. 

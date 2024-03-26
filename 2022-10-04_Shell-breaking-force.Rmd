@@ -1,0 +1,1495 @@
+---
+title: "Mussel shell breaking force 10-12/2020"
+author: "Katrin Schertenleib"
+#date: "`r format(Sys.Date(), '%d/%m/%y')`"
+output: github_notebook
+---
+
+file first created Tue Oct  4 17:22:25 2022
+
+Aim: Investigate if treatments had an effect on the force needed to crush mussel shells
+
+Plan:
+1. exclude shells that broke with multiple force peaks
+2. compare how many left or right shells per treatment and if I have enough samples only using right shells. exclude left shells if possible (briefly checked in excel)
+3. Plot force over shell length. if corrlation, use shell length later as covariate. check for differences according to shell colour
+4. plot force over shell length for all treatments
+5. standardise by length? or rather use length as covariate? The latter allows for an interaction of length with the other variables when running analyses. Try standardising using the condition index. Wet weight data is available, too, but needs more data prep
+Run analyses
+
+# 1. Housekeeping
+libraries
+```{r setup} 
+#library(installr) #to always use the latest version
+    #updateR()
+#library(readxl)   #to import data from excel
+#library(yaml)     #for advanced Rmarkdown layout options, e.g. using code in the header (allows to print current date in Markdown header)
+library(tidyverse)#includes ggplot, dplyr and plyr
+library(lubridate) #to run parse_date_time
+#library(nortest) #to run Lilliefors corrected Kolmogorov-Smirnov normality tests
+library(car) #to run Anova() or the Levene test. However, causes problem with dplyr recode()!
+```
+note: If you have a code block named 'setup' like```{r setup} foo() ``` then every time you restart RStudio and execute any code in the middle of your markdown document, this block will be automatically run once before, i.e. you libraries will be loaded first.
+foo() is a placeholder variable in coding
+
+check work environment (especially, if you're not working in R projects)
+```{r}
+getwd() #when working in an R project, no need to change this manually. setwd() allows you to set it manually
+#dir() #lists what is in the work directory
+```
+
+# 2. Reading in the data
+```{r}
+Shells.dat <- read_csv("2021-05-24_MesocosmExperiment_MusselShellBreakingForce.csv")
+```
+
+```{r}
+WW.dat <- read_csv("2020-12-17to18_MesocosmExperiment_MusselsOUT.csv")
+
+str(WW.dat)
+tail(WW.dat)
+```
+
+
+# 3. Data preparation and exploration
+## 3.1 check and clean
+check, if data was read in correctly
+```{r}
+str(Shells.dat) #displays internal structure of the objects in the data frame
+names(Shells.dat) #lists all variable headers in the data frame
+nrow(Shells.dat) #gives you number of rows in the data frame
+ncol(Shells.dat) #gives you number of columns in the data frame
+head(Shells.dat) #good way to check the first 6 rows, i.e. see if not only the headers but also the data looks ok
+tail(Shells.dat) #looks at the end of the data set
+```
+remove unneeded information
+```{r}
+Shells.dat <- Shells.dat[, c(4,6:15)]
+names(Shells.dat)[3] <-"size"
+```
+separate the combined treatment information into additional columns for each factor
+```{r}
+Shells.dat <- separate(Shells.dat, treatment, sep = "_", into = c("SpeciesLevel", "TempLevel", "pCO2Level"), remove=FALSE)
+```
+
+exclude shells that broke with multiple force peaks. 
+```{r}
+Shells.datintact <- Shells.dat[Shells.dat$`major peaks`=="one",]
+```
+remove NA rows (used to be K and B)
+```{r}
+Shells.datintactMKM <- Shells.datintact[!is.na(Shells.datintact$racktank),]
+```
+only right side valves
+```{r}
+Shells.datintactMKMr <- Shells.datintactMKM[Shells.datintactMKM$side=="r",]
+```
+
+adding the wet weight data for standardising
+```{r}
+WW.dat <- WW.dat[,c(4,6,25:27)]
+tail(WW.dat)
+```
+```{r}
+WW.datlong <- pivot_longer(WW.dat, cols=3:5, names_to="size", values_to="WW")
+#rename the levels
+#WW.datlong <- WW.datlong %>%    #requires tidyverse
+  # Rename levels of size class
+  #mutate(size = recode(size,"WWSmall" = "s", "Wwmedium" = "m", "Wwlarge" = "l" ))
+#why does this code not work anymore?? It did work before
+WW.datlong$size <- ifelse(WW.datlong$size=="WWSmall", "s", ifelse(WW.datlong$size=="Wwmedium", "m", "l"))
+```
+merge
+```{r}
+Shells.datintactMKMr <- merge(Shells.datintactMKMr, WW.datlong, by=c("racktank", "size"))
+head(Shells.datintactMKMr)
+Shells.datintactMKMr <- Shells.datintactMKMr[,c(1:14,16)]
+names(Shells.datintactMKMr)
+names(Shells.datintactMKMr)[3] <-"treatment"
+head(Shells.datintactMKMr)
+```
+
+
+
+```{r}
+summary(Shells.dat)
+```
+```{r}
+summary(Shells.datintactMKMr)
+```
+
+
+## 3.2 Initial exploration
+```{r}
+plot(Shells.dat$length, Shells.dat$Fmax)
+plot(Shells.datintactMKMr$length, Shells.datintactMKMr$Fmax)
+```
+Yes, looks like a trend of increasing force needed with increasing shell length
+
+```{r}
+hist(Shells.dat$length)
+hist(Shells.datintactMKMr$length)
+hist(Shells.datintactMKMr$WW)
+```
+
+
+
+```{r}
+hist(Shells.dat$Fmax)
+hist(Shells.datintactMKMr$Fmax)
+```
+
+
+## 3.3 Calculations
+relative shell breaking force = Fmax / length
+```{r}
+Shells.dat$rFmax <- Shells.dat$Fmax / Shells.dat$length
+Shells.datintactMKMr$rFmax <- Shells.datintactMKMr$Fmax / Shells.datintactMKMr$length
+Shells.datintactMKMr$rFmaxWW <- Shells.datintactMKMr$Fmax / Shells.datintactMKMr$WW
+```
+
+```{r}
+hist(Shells.dat$rFmax)
+hist(Shells.datintactMKMr$rFmax)
+hist(Shells.datintactMKMr$rFmaxWW)
+```
+```{r}
+names(Shells.dat)
+names(Shells.datintactMKMr)
+```
+
+reduce to 1 average force value per mesocosm
+```{r}
+Shells.datavrg <- Shells.dat %>%
+  group_by(racktank) %>%
+    summarise(aFmax=round(mean(Fmax, na.rm=TRUE),2),
+              alength=round(mean(length, na.rm=TRUE),2),
+              arFmax=round(mean(rFmax, na.rm=TRUE),2),
+              treatment=treatment,
+              SpeciesLevel=SpeciesLevel,
+              TempLevel=TempLevel,
+              pCO2Level=pCO2Level)
+
+Shells.datintactMKMravrg <- Shells.datintactMKMr %>%
+  group_by(racktank) %>%
+    summarise(alength=round(mean(length, na.rm=TRUE),2),
+              aFmax=round(mean(Fmax, na.rm=TRUE),2),
+              arFmax=round(mean(rFmax, na.rm=TRUE),2),
+              #arFmaxWW=round(mean(rFmaxWW, na.rm=TRUE),2),
+              treatment=treatment,
+              SpeciesLevel=SpeciesLevel,
+              TempLevel=TempLevel,
+              pCO2Level=pCO2Level,
+              colour=colour)
+
+#remove duplicate racktank rows
+Shells.datintactMKMravrg2 <- Shells.datintactMKMravrg[!duplicated(Shells.datintactMKMravrg$racktank),]
+
+#what happens if I only standardise now??
+Shells.datintactMKMravrg2$Fmaxrationew <- Shells.datintactMKMravrg2$aFmax/Shells.datintactMKMravrg2$alength
+```
+```{r}
+summary(Shells.datintactMKMravrg)
+summary(Shells.datintactMKMravrg2)
+
+```
+```{r}
+Shells.datintactMKMravrg2$racktank[Shells.datintactMKMravrg2$arFmax==2.380]
+Shells.datintactMKMravrg2$racktank[Shells.datintactMKMravrg2$Fmaxrationew>2.5]
+```
+```{r}
+hist(Shells.datintactMKMravrg2$arFmax, breaks=10)
+plot(Shells.datintactMKMravrg2$arFmax)
+plot(Shells.datintactMKMravrg2$Fmaxrationew)
+hist(Shells.datintactMKMravrg2$Fmaxrationew, breaks=10)
+```
+
+
+# 4. Plotting
+## 4.1 still considering left shells and the ones with multiple breaking peaks
+```{r}
+#to order the temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+Shells.dat$TempLevel <- factor(Shells.dat$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+Shells.dat$pCO2Level <- factor(Shells.dat$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+ShellsMKM.dat <- Shells.dat[Shells.dat$SpeciesLevel=="M" | Shells.dat$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of Assemblage:
+#ShellsMKM.dat_mod <- ShellsMKM.dat %>%    #requires tidyverse
+  # Rename levels of Assemblage
+  #mutate(SpeciesLevel = recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+ShellsMKM.dat_mod <- ShellsMKM.dat
+ShellsMKM.dat_mod$SpeciesLevel <- ifelse(ShellsMKM.dat_mod$SpeciesLevel=="KM", "Mussels and kelp (KM)", "Mussels only (M)")
+```
+
+```{r}
+names(ShellsMKM.dat)
+```
+
+```{r Fmax over length}
+FigureFmax <- ggplot(ShellsMKM.dat_mod, aes(x=length, y=Fmax, colour=pCO2Level))  #, size=pCO2Level
+FigureFmax+
+  #geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  #facet_grid(SpeciesLevel~pCO2Level)+
+  labs(y="Force needed to break mussel shell [N]", x="Mussel shell length [mm]")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values=c("black", "grey"))+
+  #scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(colour = guide_legend(order = 1, title="pCO2 Level")) #, colour = guide_legend(order=2, title="Temperature \nLevel)"
+```
+
+```{r Fmax over length considering colour}
+FigureFmax <- ggplot(ShellsMKM.dat_mod, aes(x=length, y=Fmax, colour=TempLevel, shape=colour))  # size=pCO2Level, 
+FigureFmax+
+  #geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  geom_point(size=2)+
+  facet_grid(SpeciesLevel~pCO2Level)+
+  #geom_smooth(model=lm)+
+  labs(y="Force needed to break mussel shells [N]", x="Mussel shell length [mm]")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+
+```{r rFmax}
+FigureFmax <- ggplot(ShellsMKM.dat_mod, aes(x=TempLevel, y=Fmax, colour=TempLevel, fill=pCO2Level))  
+FigureFmax+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Absolute force needed to break mussel shell [N]", x="Mussel shell length [mm]")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+```{r rFmax}
+FigureFmax1 <- ggplot(ShellsMKM.dat_mod, aes(x=TempLevel, y=rFmax, colour=TempLevel, fill=pCO2Level))  
+FigureFmax1+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Relative force needed to break mussel shell [N]", x="Mussel shell length [mm]")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+## 4.2 inlcuding multiple-peak-breaking-shells and left shells, but averaged per mesocosm
+
+```{r}
+#to order the temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+Shells.datavrg$TempLevel <- factor(Shells.datavrg$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+Shells.datavrg$pCO2Level <- factor(Shells.datavrg$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+ShellsMKM.datavrg <- Shells.datavrg[Shells.datavrg$SpeciesLevel=="M" | Shells.datavrg$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of Assemblage:
+ShellsMKM.datavrg_mod <- ShellsMKM.datavrg %>%    #requires tidyverse
+  # Rename levels of Assemblage
+  mutate(SpeciesLevel = recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+```
+
+
+```{r average rFmax}
+FigureFmax2 <- ggplot(ShellsMKM.datavrg_mod, aes(x=TempLevel, y=arFmax, colour=TempLevel, fill=pCO2Level))  
+FigureFmax2+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Force needed to break mussel shell [N]", x="Mussel shell length [mm]")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+## 4.3 intact shells (shell failure with 1 clear force peak) and right side shells only
+```{r}
+#to order the temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+Shells.datintactMKMr$TempLevel <- factor(Shells.datintactMKMr$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+Shells.datintactMKMr$pCO2Level <- factor(Shells.datintactMKMr$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+#Shells.datintactMKMravrg <- Shells.datavrg[Shells.datintactMKMravrg$SpeciesLevel=="M" | Shells.datintactMKMravrg$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of Assemblage:
+Shells.datintactMKMr_mod <- Shells.datintactMKMr #%>%    #requires tidyverse
+  # Rename levels of Assemblage
+  #mutate(SpeciesLevel = recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+Shells.datintactMKMr_mod$SpeciesLevel <- ifelse(Shells.datintactMKMr_mod$SpeciesLevel=="KM", "Mussels and kelp (KM)", "Mussels only (M)")
+
+#to order the temperature levels in an increasing way in the plot (lowest on bottom, highest on top)
+Shells.datintactMKMravrg2$TempLevel <- factor(Shells.datintactMKMravrg2$TempLevel, levels = c("Ta", "T+", "T++")) #specify factor levels in the order you want
+Shells.datintactMKMravrg2$pCO2Level <- factor(Shells.datintactMKMravrg2$pCO2Level, levels = c("Ca", "C+")) #specify factor levels in the order you want
+
+#reduce to M and KM treatments only
+#Shells.datintactMKMravrg <- Shells.datavrg[Shells.datintactMKMravrg$SpeciesLevel=="M" | Shells.datintactMKMravrg$SpeciesLevel=="KM",]
+
+#for better facet labeling I need to rename the levels of Assemblage:
+Shells.datintactMKMravrg2_mod <- Shells.datintactMKMravrg2 %>%    #requires tidyverse
+  # Rename levels of Assemblage
+  mutate(SpeciesLevel = dplyr::recode(SpeciesLevel, "B" = "Blank (B)", "K" = "Kelp (K)", "KM" = "Mussels and kelp (KM)", "M" = "Mussels only (M)"))
+
+table(Shells.datintactMKMravrg2$treatment) #not balanced
+```
+
+```{r }
+FigureairFmax <- ggplot(Shells.datintactMKMravrg2_mod, aes(x=alength, y=aFmax, colour=TempLevel, shape=pCO2Level))  # size=pCO2Level, , shape=colour
+FigureairFmax+
+  #geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  geom_point(size=2)+
+  facet_wrap(.~SpeciesLevel)+
+  #facet_grid(SpeciesLevel~pCO2Level)+
+  #geom_smooth(method=lm)+
+  labs(y="Force needed to break mussel shells [N]", x="Mussel shell length [mm]")+ #labelling of axes (can be removed by setting to FALSE)
+  #scale_colour_manual(values=c("black", "grey"))+
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  #scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(shape = guide_legend(order = 1, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel")) #, size = guide_legend(order=3, title="pCO2 Level")
+```
+
+```{r}
+ggsave(path="Plots", filename="2022-10-27_BreakingForceRightIntactShells-over-ShellLength_per-species_indicating-temp-and-pCO2.png", width=5, height=3) #legend on figure
+#width usually 7
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+```{r Average Fmax over length considering colour per mesocosm}
+FigureirFmaxavrg <- ggplot(Shells.datintactMKMravrg2_mod, aes(x=alength, y=aFmax, colour=TempLevel, shape=colour))  # size=pCO2Level,
+FigureirFmaxavrg+
+  #geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  geom_point(size=2)+
+  facet_grid(SpeciesLevel~pCO2Level)+
+  #geom_smooth(model=lm)+
+  labs(y="Average force needed to break mussel shells [N]", x="Average mussel shell length [mm]")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+
+```{r rFmax standardised by length, only intact right side shells, not averaged per mesocosm}
+FigurerFmax <- ggplot(Shells.datintactMKMr_mod, aes(x=TempLevel, y=rFmax, colour=TempLevel, fill=pCO2Level))  
+FigurerFmax+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Relative force needed to break right side, \nintact mussel shells [N/mm]", x="Temperature level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+```{r rFmaxWW standardised by wet weight, only intact right side shells, not averaged per mesocosm}
+FigurerFmaxWW <- ggplot(Shells.datintactMKMr_mod, aes(x=TempLevel, y=rFmaxWW, colour=TempLevel, fill=pCO2Level))  
+FigurerFmaxWW+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Relative force needed to break right side, \nintact mussel shells [N/g]", x="Temperature level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+
+```{r average (per mesocosm) rFmax already standardised by shell length, only intact right side shells}
+FigurearFmax <- ggplot(Shells.datintactMKMravrg2_mod, aes(x=TempLevel, y=arFmax, colour=TempLevel, fill=pCO2Level))  
+FigurearFmax+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Relative force needed to break right side, \nintact mussel shells, averaged \nper mesocosm [N/mm]", x="Temperature level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-10-06_AverageRelativeBreakingForceShellLengthRightIntactShells.png", width=7, height=3) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+```{r !!average (per mesocosm) Fmax and shell length standardised, only intact right side shells}
+FigureFmaxrationew <- ggplot(Shells.datintactMKMravrg2_mod, aes(x=TempLevel, y=Fmaxrationew, colour=TempLevel, fill=pCO2Level))  
+FigureFmaxrationew+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Relative force needed to break right side, \nintact mussel shells, averaged \nper mesocosm [N/mm]", x="Temperature level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-10-06_RatioOfAverageBreakingForceAndShellLengthRightIntactShells.png", width=7, height=3) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+```{r !!average (per mesocosm) rFmax standardised by wet weight, only intact right side shells}
+FigurearFmaxWW <- ggplot(Shells.datintactMKMravrg_mod, aes(x=TempLevel, y=arFmaxWW, colour=TempLevel, fill=pCO2Level))  
+FigurearFmaxWW+
+  geom_boxplot()+ #, lwd=0.7 width=0.6, position=position_dodge(0.5)
+  #geom_point()+
+  facet_wrap(.~SpeciesLevel)+
+  labs(y="Relative force needed to break right side, \nintact mussel shells, averaged \nper mesocosm [N/g]", x="Temperature level")+ #labelling of axes (can be removed by setting to FALSE)
+  scale_colour_manual(values = c("navy", "royalblue", "skyblue"))+ #manually select colours of "fill"
+  scale_fill_manual(values=c("white","grey80"))+
+  #scale_x_discrete(labels=c("5"= "Dec 08\n09:30", "6"= "Dec 08\n13:30", "7"= "Dec 08\n17:30", "8"= "Dec 09"))+
+  #scale_y_continuous(breaks=seq(7,16,by=1))+
+  theme(panel.background=element_blank(), #no background
+        axis.line.x=element_line(colour="black", size= 0.5), #colour of the x- axis
+        axis.line.y=element_line(colour="black", size= 0.5), #colour of the y- axis
+        axis.ticks.x = element_line(), #x axis tick; to include and modify width use element_line(size = 0.8)
+        axis.title.x=element_text(size=9),
+        panel.grid=element_blank(), #no grid lines
+        axis.text=element_text(size=9), #size of the numbers along the axes
+        #axis.text.x=element_blank(), #x axis tick mark font specifications; include labels via element_text(size=10, angle=90, hjust=0, vjust=0.25); hjust and vjust are defined between 0(left-justified) and 1(right justified)
+        axis.text.y=element_text(size=9),
+        axis.title=element_text(size=9), #size of the labels on the axes
+        #legend.position = c(0.9, 0.9),
+        legend.text = element_text(size=9), #
+        legend.title = element_text(size=9),
+        #legend.position = c(0.92, 0.85),
+        #legend.key=element_rect(fill="white"),
+        #legend.background = element_rect(colour = "black")
+        #strip.text = element_text(size = 9), #font size of facet labels
+        #strip.background = element_blank() #removes facet label boxes
+        #strip.background = element_rect(colour= "black", fill="grey97"))
+        )+
+  guides(fill = guide_legend(order = 2, title="pCO2 Level"), colour = guide_legend(order=1, title="Temperature \nLevel"))
+```
+```{r}
+ggsave(path="Plots", filename="2022-10-06_AverageRelativeBreakingForceWetWeightRightIntactShells.png", width=7, height=3) #legend on figure
+#ggsave(path="Plots", filename="SnapshotTemperatureMeasurements3.png", width=11, height=4)#legend right of figure
+```
+
+
+
+# 5. Statistical Analyses
+## 5.1 All intact right shells
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for inbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+
+```{r}
+summary(Shells.datintactMKMr)
+names(Shells.datintactMKMr)
+```
+
+```{r}
+hist(Shells.datintactMKMr$Fmax)
+hist(sqrt(Shells.datintactMKMr$Fmax)) #better than raw?
+hist(log(Shells.datintactMKMr$Fmax)) #better than sqrt?
+```
+```{r}
+hist(Shells.datintactMKMr$rFmax)
+hist(sqrt(Shells.datintactMKMr$rFmax)) #best?
+hist(log(Shells.datintactMKMr$rFmax))
+```
+
+
+
+RESULT: ERRORS NON-NORMAL
+r for raw (untransformed) data
+ANCOVA because length is a continuous covariate
+```{r}
+Model1r<-aov(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$SpeciesLevel*Shells.datintactMKMr$TempLevel*Shells.datintactMKMr$pCO2Level*Shells.datintactMKMr$length) #Model1 multi-factorial; if required, add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of species level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+# remove insignificant 3-way interaction
+Model1ru1 <-update(Model1r,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1r, Model1ru1) #removal ok if p>0.05, which is the case here
+summary(Model1ru1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1ru1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1ru2a <-update(Model1ru1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru1, Model1ru2a) #ok
+
+Model1ru2b <-update(Model1ru1,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru1, Model1ru2b) #ok
+
+Model1ru2c <-update(Model1ru1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length , data=Shells.datintactMKMr)
+anova(Model1ru1, Model1ru2c) #ok
+
+Model1ru2d <-update(Model1ru1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru1, Model1ru2d) #ok
+
+Model1ru3 <-update(Model1ru1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru1, Model1ru3) #ok
+
+Model1ru4 <-update(Model1ru3,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru3, Model1ru4) #ok
+
+Model1ru5_1 <-update(Model1ru4,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru4, Model1ru5_1) #ok
+
+Model1ru5 <-update(Model1ru5_1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru5_1, Model1ru5) #ok (0.09)
+summary(Model1ru5)
+Anova(Model1ru5, type=3)
+
+Model1ru6a <-update(Model1ru5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru5, Model1ru6a) #ok
+
+Model1ru6b <-update(Model1ru5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru5, Model1ru6b) #ok
+
+Model1ru6c <-update(Model1ru5,~.-Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru5, Model1ru6c) #ok
+
+Model1ru6d <-update(Model1ru5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel, data=Shells.datintactMKMr)
+anova(Model1ru5, Model1ru6d) #ok
+
+Model1ru6e <-update(Model1ru5,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru5, Model1ru6e) #ok marginally
+
+Model1ru6f <-update(Model1ru5,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru5, Model1ru6f) #not ok
+
+
+Model1ru7 <-update(Model1ru5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru5, Model1ru7) #ok
+
+Model1ru8 <-update(Model1ru7,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru7, Model1ru8) #ok
+
+Model1ru9 <-update(Model1ru8,~.-Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru8, Model1ru9) #ok
+
+Model1ru10 <-update(Model1ru9,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel, data=Shells.datintactMKMr)
+anova(Model1ru9, Model1ru10) #ok
+
+Model1ru11 <-update(Model1ru10,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1ru10, Model1ru11) #ok marginally
+summary(Model1ru11)
+Anova(Model1ru11)
+
+Model1ru12 <-update(Model1ru11,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru11, Model1ru12) #ok marginally
+
+summary(Model1ru12)
+Anova(Model1ru12, type=3)
+
+Model1ru13a <-update(Model1ru12,~.-Shells.datintactMKMr$SpeciesLevel, data=Shells.datintactMKMr)
+anova(Model1ru12, Model1ru13a) #ok
+
+Model1ru13b <-update(Model1ru12,~.-Shells.datintactMKMr$TempLevel , data=Shells.datintactMKMr)
+anova(Model1ru12, Model1ru13b) #ok
+
+Model1ru13c <-update(Model1ru12,~.-Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru12, Model1ru13c) #ok
+
+Model1ru14 <-update(Model1ru12,~.-Shells.datintactMKMr$SpeciesLevel, data=Shells.datintactMKMr)
+anova(Model1ru12, Model1ru14) #ok
+
+Model1ru15 <-update(Model1ru14,~.-Shells.datintactMKMr$TempLevel , data=Shells.datintactMKMr)
+anova(Model1ru14, Model1ru15) #ok
+
+Model1ru16 <-update(Model1ru15,~.-Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1ru15, Model1ru16) #ok
+
+#Model1ru11 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+summary(Model1ru16)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1ru16)~fitted(Model1ru16))+
+abline(h=0, lwd=2, col="black") #hm
+#statistical
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Shells.datintactMKMr$Fmax) ~ Shells.datintactMKMr$TempLevel) #insignificant
+fligner.test(log(Shells.datintactMKMr$Fmax) ~ Shells.datintactMKMr$TempLevel) #insignificant
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$SpeciesLevel) #ok
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$pCO2Level) #ok
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$length) #ok
+fligner.test(Shells.datintactMKMr$Fmax ~ interaction(Shells.datintactMKMr$SpeciesLevel,  Shells.datintactMKMr$TempLevel, Shells.datintactMKMr$pCO2Level, Shells.datintactMKMr$length)) #NA
+fligner.test(sqrt(Shells.datintactMKMr$Fmax) ~ interaction(Shells.datintactMKMr$SpeciesLevel,  Shells.datintactMKMr$TempLevel, Shells.datintactMKMr$pCO2Level)) #ok
+fligner.test(Shells.datintactMKMr$Fmax ~ interaction(Shells.datintactMKMr$SpeciesLevel,  Shells.datintactMKMr$TempLevel, Shells.datintactMKMr$pCO2Level)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1ru16)) #hm
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1ru16)) #significant, i.e. data not normally distributed
+lillie.test(resid(Model1ru16))  # for n>70; requires library(nortest) #significant
+
+#influential data points
+plot(cooks.distance(Model1ru16),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1ru16) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+AIC(Model1r,Model1ru16)
+#Model1u8 is better than Model1 (value is smaller)
+```
+summary(Model1ru11) all shell halves, including non-intact ones
+                                                                      Df Sum Sq Mean Sq F value Pr(>F)    
+ShellsMKM.dat$TempLevel                                                2      9       4   0.145 0.8648    
+ShellsMKM.dat$pCO2Level                                                1    141     141   4.694 0.0320 *  
+ShellsMKM.dat$length                                                   1   3671    3671 122.000 <2e-16 ***
+ShellsMKM.dat$TempLevel:ShellsMKM.dat$pCO2Level                        2    203     101   3.369 0.0374 *  
+ShellsMKM.dat$TempLevel:ShellsMKM.dat$length                           2    174      87   2.885 0.0593 .  
+ShellsMKM.dat$pCO2Level:ShellsMKM.dat$length                           1      1       1   0.039 0.8434    
+ShellsMKM.dat$TempLevel:ShellsMKM.dat$pCO2Level:ShellsMKM.dat$length   2    206     103   3.420 0.0356 *  
+Residuals                                                            134   4032      30                   
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+summary(Model1ru16) only intact right shells
+                            Df Sum Sq Mean Sq F value   Pr(>F)    
+Shells.datintactMKMr$length  1   3029  3028.5   90.43 1.29e-15 ***
+Residuals                   99   3316    33.5                     
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+
+errors of raw data model non-normal. try log transformed data RESULT: ALSO NOT NORMAL
+```{r}
+Model1<-aov(log(Shells.datintactMKMr$Fmax) ~ Shells.datintactMKMr$SpeciesLevel*Shells.datintactMKMr$TempLevel*Shells.datintactMKMr$pCO2Level*Shells.datintactMKMr$length) #Model1 multi-factorial; add +0.1 if response has negative range so that values become positive and roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1) #main effects of temperature level significant (0.0363), Temp*Species marginally significant, rest insignificant
+Anova(Model1)
+
+# remove insignificant 3-way interaction
+Model1u1 <-update(Model1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1, Model1u1) #removal ok if p>0.05, which is the case here
+summary(Model1u1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1u1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1u2a <-update(Model1u1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data= Shells.datintactMKMr)
+anova(Model1u1, Model1u2a) #ok
+
+Model1u2b <-update(Model1u1,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u1, Model1u2b) #ok
+
+Model1u2c <-update(Model1u1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u1, Model1u2c) #ok
+
+Model1u2d <-update(Model1u1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u1, Model1u2d) #not ok
+
+
+Model1u3 <-update(Model1u1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data= Shells.datintactMKMr)
+anova(Model1u1, Model1u3) #ok
+
+Model1u4 <-update(Model1u3,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u3, Model1u4) #ok
+#Anova(Model1u4, type=3)
+
+Model1u5 <-update(Model1u4,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u4, Model1u5) #ok
+
+#Model1u5 <-update(Model1u5_1,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+#anova(Model1u5_1, Model1u5) #not ok
+
+
+summary(Model1u5)
+Anova(Model1u5, type=3)
+
+Model1u6a <-update(Model1u5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u5, Model1u6a) #not ok
+
+Model1u6b <-update(Model1u5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel, data=Shells.datintactMKMr)
+anova(Model1u5, Model1u6b) #ok marginally
+
+Model1u6c <-update(Model1u5,~.-Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u5, Model1u6c) #ok
+
+Model1u6d <-update(Model1u5,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u5, Model1u6d) #not ok
+
+Model1u6e <-update(Model1u5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1u5, Model1u6e) #ok
+
+Model1u6f <-update(Model1u5,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1u5, Model1u6f) #ok marginally
+
+
+
+Model1u7 <-update(Model1u5,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$TempLevel, data=Shells.datintactMKMr)
+anova(Model1u5, Model1u7) #ok marginally
+
+Model1u8 <-update(Model1u7,~.-Shells.datintactMKMr$pCO2Level:Shells.datintactMKMr$length, data=Shells.datintactMKMr)
+anova(Model1u7, Model1u8) #ok
+
+Model1u9 <-update(Model1u8,~.-Shells.datintactMKMr$SpeciesLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1u8, Model1u9) #ok
+
+Model1u10 <-update(Model1u9,~.-Shells.datintactMKMr$TempLevel:Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1u9, Model1u10) #ok marginally
+
+summary(Model1u10)
+Anova(Model1u10, type=3)
+
+Model1u11a <-update(Model1u10,~.-Shells.datintactMKMr$SpeciesLevel, data=Shells.datintactMKMr)
+anova(Model1u10, Model1u11a) #ok
+
+Model1u11b <-update(Model1u10,~.-Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1u10, Model1u11b) #ok
+
+Model1u11c <-update(Model1u10,~.-Shells.datintactMKMr$TempLevel, data=Shells.datintactMKMr)
+anova(Model1u10, Model1u11c) #ok
+
+Model1u12 <-update(Model1u10,~.-Shells.datintactMKMr$SpeciesLevel, data=Shells.datintactMKMr)
+anova(Model1u10, Model1u12) #ok
+
+Model1u13 <-update(Model1u12,~.-Shells.datintactMKMr$pCO2Level, data=Shells.datintactMKMr)
+anova(Model1u12, Model1u13) #ok
+
+Model1u14 <-update(Model1u13,~.-Shells.datintactMKMr$TempLevel, data=Shells.datintactMKMr)
+anova(Model1u13, Model1u14) #ok
+
+summary(Model1u14) #significant pCO2 AND length effect
+Anova(Model1u14, type=3) #only significant length effect?!
+
+#Model1u13 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+summary(Model1u14)
+
+#Diagnostics for Model1
+#homogeneity of variances
+#graphical
+plot(resid(Model1u14)~fitted(Model1u14))+
+abline(h=0, lwd=2, col="black") #looks better than raw data model
+#statistical
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Shells.datintactMKMr$Fmax) ~ Shells.datintactMKMr$TempLevel) #insignificant
+fligner.test(log(Shells.datintactMKMr$Fmax) ~ Shells.datintactMKMr$TempLevel) #insignificant
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$SpeciesLevel) #ok
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$pCO2Level) #ok
+fligner.test(Shells.datintactMKMr$Fmax ~ Shells.datintactMKMr$length) #o
+fligner.test(Shells.datintactMKMr$Fmax ~ interaction(Shells.datintactMKMr$SpeciesLevel,  Shells.datintactMKMr$TempLevel, Shells.datintactMKMr$pCO2Level, Shells.datintactMKMr$length)) #ok
+fligner.test(Shells.datintactMKMr$Fmax ~ interaction(Shells.datintactMKMr$SpeciesLevel,  Shells.datintactMKMr$TempLevel, Shells.datintactMKMr$pCO2Level)) #ok
+fligner.test(sqrt(Shells.datintactMKMr$Fmax) ~ interaction(Shells.datintactMKMr$SpeciesLevel,  Shells.datintactMKMr$TempLevel, Shells.datintactMKMr$pCO2Level, Shells.datintactMKMr$length)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1u14)) #ok
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1u14)) #significant, i.e. data not normally distributed
+lillie.test(resid(Model1u14))  # for n>70; requires library(nortest) #insignificant
+
+#influential data points
+plot(cooks.distance(Model1u14),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1u14) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+AIC(Model1,Model1u14)
+#Model1u7 is better than Model1 (value is smaller)
+```
+## 5.2 average Fmax and length per mesocosm
+
+Shells.datintactMKMravrg
+
+aov() provides a wrapper to lm() for fitting linear models to balanced or unbalanced experimental designs.
+The main difference from lm() is in the way print, summary and so on handle the fit: this is expressed in the traditional language of the analysis of variance rather than that of linear models.
+
+first use lm / aov to fit a model, then use anova to assess if removing a predictor improves the fit of the model
+
+aov() fits a model, so it produces regression coefficients, fitted values, residuals, etc; It produces an object of primary class "aov" but also a secondary class "lm". So, it is an augmentation of an "lm" object.
+anova() is a generic function that returns a much more succinct type I (sequential) ANOVA table.
+
+If you want to run Tukey’s HSD tests later, consider that it requires an aov object on which it runs its procedure
+
+"anova()" is a function in base R and uses type I Sums of Squares as default, 
+"Anova()" is from the package 'car' and uses type II or III sos
+
+In ANOVA, you can use different types of sums of squares (https://books.google.ch/books?id=wd2K2zC3swIC&lpg=PP1&hl=de&pg=PA475#v=onepage&q&f=false)
+Type I: sequential
+Type II: most powerful for main effects and no (!) predicted interactions
+Type III: when interactions are present, the main effects associated with that interaction will still be meaningful; requires orthogonal contrasts; can be used for inbalanced design 
+Anova(Model1, type=3) (note capital A!!!) needs the following general specification: options(contrasts=c("contr.sum", "contr.poly"))
+
+```{r}
+summary(Shells.datintactMKMravrg2)
+names(Shells.datintactMKMravrg2)
+```
+
+```{r}
+hist(Shells.datintactMKMravrg2$aFmax)
+hist(sqrt(Shells.datintactMKMravrg2$aFmax)) #better than raw?
+hist(log(Shells.datintactMKMravrg2$aFmax)) #better than sqrt?
+
+```
+```{r}
+hist(Shells.datintactMKMravrg2$arFmax, breaks=10)
+hist(sqrt(Shells.datintactMKMravrg2$arFmax), breaks=10) 
+hist(log(Shells.datintactMKMravrg2$arFmax), breaks=10) #best?
+
+hist(Shells.datintactMKMravrg2$Fmaxrationew, breaks=10)
+hist(sqrt(Shells.datintactMKMravrg2$Fmaxrationew), breaks=10) #better than raw?
+hist(log(Shells.datintactMKMravrg2$Fmaxrationew), breaks=10) #better than sqrt?
+```
+
+r for raw (untransformed) data
+### 5.2.1 ANCOVA using length is a continuous covariate
+```{r}
+Model1r<-aov(Shells.datintactMKMravrg2$aFmax ~ Shells.datintactMKMravrg2$SpeciesLevel*Shells.datintactMKMravrg2$TempLevel*Shells.datintactMKMravrg2$pCO2Level*Shells.datintactMKMravrg2$alength) #Model1 multi-factorial; if required, add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of species level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+# remove insignificant 3-way interaction
+Model1ru1 <-update(Model1r,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1r, Model1ru1) #removal ok if p>0.05, which is the case here
+summary(Model1ru1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1ru1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1ru2a <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2a) #ok
+
+Model1ru2b <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2b) #ok
+
+Model1ru2c <-update(Model1ru1,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2c) #ok
+
+#Model1ru2d <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$length, data=Shells.datintactMKMravrg2)
+#anova(Model1ru1, Model1ru2d) #ok
+
+Model1ru3 <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru3) #ok
+
+Model1ru4 <-update(Model1ru3,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru3, Model1ru4) #ok
+
+Model1ru5 <-update(Model1ru4,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru4, Model1ru5) #ok
+
+#Model1ru5 <-update(Model1ru5_1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$length, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5_1, Model1ru5) #ok (0.09)
+summary(Model1ru5)
+Anova(Model1ru5, type=3)
+
+Model1ru6a <-update(Model1ru5,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6a) #not ok
+
+Model1ru6b <-update(Model1ru5,~.-Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6b) #ok
+
+Model1ru6c <-update(Model1ru5,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6c) #ok
+
+Model1ru6d <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6d) #not ok
+
+Model1ru6e <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6e) #not ok
+
+Model1ru6f <-update(Model1ru5,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6f) #not ok
+
+
+Model1ru7 <-update(Model1ru5,~.-Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru7) #ok
+
+Model1ru8 <-update(Model1ru7,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru7, Model1ru8) #ok
+summary(Model1ru8)
+
+
+Model1ru9a <-update(Model1ru8,~.-Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru8, Model1ru9a) #not ok
+
+Model1ru9b <-update(Model1ru8,~.-Shells.datintactMKMravrg2$SpeciesLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru8, Model1ru9b) #not ok
+
+Model1ru9c <-update(Model1ru8,~.-Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru8, Model1ru9c) #not ok
+
+
+#Model1ru8 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+summary(Model1ru8)
+anova(Model1ru8)
+Anova(Model1ru8, type=3)
+
+#Diagnostics for Model1
+plot(Model1ru8)
+#homogeneity of variances
+#graphical
+plot(resid(Model1ru8)~fitted(Model1ru8))+
+abline(h=0, lwd=2, col="black") #hm
+#statistical
+fligner.test(Shells.datintactMKMravrg2$aFmax ~ Shells.datintactMKMravrg2$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Shells.datintactMKMravrg2$aFmax) ~ Shells.datintactMKMravrg2$TempLevel) #insignificant
+fligner.test(log(Shells.datintactMKMravrg2$aFmax) ~ Shells.datintactMKMravrg2$TempLevel) #insignificant
+fligner.test(Shells.datintactMKMravrg2$aFmax ~ Shells.datintactMKMravrg2$SpeciesLevel) #ok
+fligner.test(Shells.datintactMKMravrg2$aFmax ~ Shells.datintactMKMravrg2$pCO2Level) #ok
+fligner.test(Shells.datintactMKMravrg2$aFmax ~ Shells.datintactMKMravrg2$alength) #ok
+fligner.test(Shells.datintactMKMravrg2$aFmax ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level, Shells.datintactMKMravrg2$alength)) #NA
+fligner.test(sqrt(Shells.datintactMKMravrg2$aFmax) ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #ok
+fligner.test(Shells.datintactMKMravrg2$aFmax ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1ru8)) #hm
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1ru8)) #insignificant, i.e. errors normally distributed
+#lillie.test(resid(Model1ru8))  # for n>70; requires library(nortest) #significant
+
+#influential data points
+plot(cooks.distance(Model1ru8),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1ru8) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+AIC(Model1r,Model1ru8)
+#Model1u8 is better than Model1 (value is smaller)
+```
+
+
+### 5.2.2 ANOVA using the averaged ratio of force and length NO EFFECT
+```{r}
+Model1r<-aov(Shells.datintactMKMravrg2$arFmax ~ Shells.datintactMKMravrg2$SpeciesLevel*Shells.datintactMKMravrg2$TempLevel*Shells.datintactMKMravrg2$pCO2Level) #Model1 multi-factorial; if required, add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of species level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+# remove insignificant 3-way interaction
+Model1ru1 <-update(Model1r,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1r, Model1ru1) #removal ok if p>0.05, which is the case here
+summary(Model1ru1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1ru1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1ru2a <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2a) #ok
+
+Model1ru2b <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2b) #ok
+
+Model1ru2c <-update(Model1ru1,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2c) #ok marginally
+
+Model1ru3 <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru3) #ok
+
+Model1ru4 <-update(Model1ru3,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru3, Model1ru4) #ok
+
+Model1ru5 <-update(Model1ru4,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru4, Model1ru5) #ok
+
+#Model1ru5 <-update(Model1ru5_1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$length, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5_1, Model1ru5) #ok (0.09)
+summary(Model1ru5)
+Anova(Model1ru5, type=3)
+
+Model1ru6a <-update(Model1ru5,~.-Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6a) #not ok
+
+Model1ru6b <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6b) #ok
+
+###nothing remains
+
+#Model1ru6c <-update(Model1ru5,~.-Shells.datintactMKMravrg2$SpeciesLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6c) #ok
+
+#Model1ru6d <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6d) #not ok
+
+#Model1ru6e <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6e) #not ok
+
+#Model1ru6f <-update(Model1ru5,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6f) #not ok
+
+
+#Model1ru7 <-update(Model1ru5,~.-Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru7) #ok
+
+#Model1ru8 <-update(Model1ru7,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+#anova(Model1ru7, Model1ru8) #ok
+#summary(Model1ru8)
+
+
+#Model1ru9a <-update(Model1ru8,~.-Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+#anova(Model1ru8, Model1ru9a) #not ok
+
+#Model1ru9b <-update(Model1ru8,~.-Shells.datintactMKMravrg2$SpeciesLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru8, Model1ru9b) #not ok
+
+#Model1ru9c <-update(Model1ru8,~.-Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru8, Model1ru9c) #not ok
+
+
+#Model1ru8 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+#summary(Model1ru8)
+#anova(Model1ru8)
+#Anova(Model1ru8, type=3)
+
+#Diagnostics for Model1
+plot(Model1r) #hmm
+
+#homogeneity of variances
+#graphical
+plot(resid(Model1r)~fitted(Model1r))+
+abline(h=0, lwd=2, col="black") #okish?
+#statistical
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ Shells.datintactMKMravrg2$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Shells.datintactMKMravrg2$arFmax) ~ Shells.datintactMKMravrg2$TempLevel) #insignificant
+fligner.test(log(Shells.datintactMKMravrg2$arFmax) ~ Shells.datintactMKMravrg2$TempLevel) #insignificant
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ Shells.datintactMKMravrg2$SpeciesLevel) #ok
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ Shells.datintactMKMravrg2$pCO2Level) #ok
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #NA
+fligner.test(sqrt(Shells.datintactMKMravrg2$arFmax) ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #ok
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1r)) #hm
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1r)) #insignificant, i.e. errors normally distributed
+#lillie.test(resid(Model1ru8))  # for n>70; requires library(nortest) #significant
+
+#influential data points
+plot(cooks.distance(Model1r),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1r) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+#AIC(Model1r,Model1ru8)
+#Model1u8 is better than Model1 (value is smaller)
+```
+                                                                                                               Pr(>F)
+Shells.datintactMKMravrg2$SpeciesLevel                                                                          0.384
+Shells.datintactMKMravrg2$TempLevel                                                                             0.638
+Shells.datintactMKMravrg2$pCO2Level                                                                             0.995
+Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel                                      0.187
+Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level                                      0.398
+Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level                                         0.108
+Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level  0.857
+Residuals                                                                                   
+
+
+
+### 5.2.3 ANOVA using the ratio of averaged force and average length ALSO NO EFFECT
+```{r}
+Shells2.dat <- Shells.datintactMKMravrg2
+Model1r<-aov(Shells2.dat$Fmaxrationew ~ Shells2.dat$SpeciesLevel*Shells2.dat$TempLevel*Shells2.dat$pCO2Level) #Model1 multi-factorial; if required, add +0.1 so that roots and logs make sense
+```
+
+
+```{r}
+options(contrasts=c("contr.sum", "contr.poly"))
+#Model simplification (do you do model simplification with ANOVAs?)
+summary(Model1r) #main effects of species level significant (0.0363), rest insignificant
+Anova(Model1r)
+
+# remove insignificant 3-way interaction
+Model1ru1 <-update(Model1r,~.-Shells2.dat$SpeciesLevel:Shells2.dat$TempLevel:Shells2.dat$pCO2Level, data=Shells2.dat)
+anova(Model1r, Model1ru1) #removal ok if p>0.05, which is the case here
+summary(Model1ru1) #call summary to see which next parts can be removed from the model, starting with the longest interaction and, if there's more of the same type, the highest p-value
+Anova(Model1ru1, type=3)
+
+#sequentially remove all two-way interactions. Try them all individually first, before actually removing them
+Model1ru2a <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2a) #ok
+
+Model1ru2b <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2b) #ok
+
+Model1ru2c <-update(Model1ru1,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru2c) #ok marginally
+
+Model1ru3 <-update(Model1ru1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru1, Model1ru3) #ok
+
+Model1ru4 <-update(Model1ru3,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru3, Model1ru4) #ok
+
+Model1ru5 <-update(Model1ru4,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru4, Model1ru5) #ok
+
+#Model1ru5 <-update(Model1ru5_1,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$length, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5_1, Model1ru5) #ok (0.09)
+summary(Model1ru5)
+Anova(Model1ru5, type=3)
+
+Model1ru6a <-update(Model1ru5,~.-Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6a) #not ok
+
+Model1ru6b <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+anova(Model1ru5, Model1ru6b) #ok
+
+###nothing remains
+
+#Model1ru6c <-update(Model1ru5,~.-Shells.datintactMKMravrg2$SpeciesLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6c) #ok
+
+#Model1ru6d <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6d) #not ok
+
+#Model1ru6e <-update(Model1ru5,~.-Shells.datintactMKMravrg2$TempLevel:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6e) #not ok
+
+#Model1ru6f <-update(Model1ru5,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru6f) #not ok
+
+
+#Model1ru7 <-update(Model1ru5,~.-Shells.datintactMKMravrg2$pCO2Level:Shells.datintactMKMravrg2$alength, data=Shells.datintactMKMravrg2)
+#anova(Model1ru5, Model1ru7) #ok
+
+#Model1ru8 <-update(Model1ru7,~.-Shells.datintactMKMravrg2$SpeciesLevel:Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+#anova(Model1ru7, Model1ru8) #ok
+#summary(Model1ru8)
+
+
+#Model1ru9a <-update(Model1ru8,~.-Shells.datintactMKMravrg2$pCO2Level, data=Shells.datintactMKMravrg2)
+#anova(Model1ru8, Model1ru9a) #not ok
+
+#Model1ru9b <-update(Model1ru8,~.-Shells.datintactMKMravrg2$SpeciesLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru8, Model1ru9b) #not ok
+
+#Model1ru9c <-update(Model1ru8,~.-Shells.datintactMKMravrg2$TempLevel, data=Shells.datintactMKMravrg2)
+#anova(Model1ru8, Model1ru9c) #not ok
+
+
+#Model1ru8 is the minimum adequate model, because of the 3-way interaction, I cannot remove any term
+#summary(Model1ru8)
+#anova(Model1ru8)
+#Anova(Model1ru8, type=3)
+
+#Diagnostics for Model1
+plot(Model1r) #hmm
+
+#homogeneity of variances
+#graphical
+plot(resid(Model1r)~fitted(Model1r))+
+abline(h=0, lwd=2, col="black") #okish?
+#statistical
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ Shells.datintactMKMravrg2$TempLevel) #insignificant, i.e. so variances can be assumed to be homogeneous
+fligner.test(sqrt(Shells.datintactMKMravrg2$arFmax) ~ Shells.datintactMKMravrg2$TempLevel) #insignificant
+fligner.test(log(Shells.datintactMKMravrg2$arFmax) ~ Shells.datintactMKMravrg2$TempLevel) #insignificant
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ Shells.datintactMKMravrg2$SpeciesLevel) #ok
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ Shells.datintactMKMravrg2$pCO2Level) #ok
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #NA
+fligner.test(sqrt(Shells.datintactMKMravrg2$arFmax) ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #ok
+fligner.test(Shells.datintactMKMravrg2$arFmax ~ interaction(Shells.datintactMKMravrg2$SpeciesLevel,  Shells.datintactMKMravrg2$TempLevel, Shells.datintactMKMravrg2$pCO2Level)) #ok
+
+#normality of errors
+#graphical
+hist(resid(Model1r)) #hm
+#statistical (Shapiro-Wilk test works for 7 < n < 70)
+shapiro.test(resid(Model1r)) #insignificant, i.e. errors normally distributed
+#lillie.test(resid(Model1ru8))  # for n>70; requires library(nortest) #significant
+
+#influential data points
+plot(cooks.distance(Model1r),type="h") #all <1, i.e. not problematic
+
+#autocorrelation (requires library(car))
+durbinWatsonTest(Model1r) #DW statistic ranges from 0 to 4, with 2 indicating no autocorrelation. <2 is positively autocorrelated, >2 is negatively autocorrelated. Values in the range of 1.5 - 2.5 are considered "normal"
+#ok
+
+#AIC(Model1r,Model1ru8)
+#Model1u8 is better than Model1 (value is smaller)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
